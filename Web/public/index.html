@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#101411">
+    <title>OBSIDIAN — Commandement central</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap');
+
+      :root {
+        color-scheme: dark;
+        --bg: #101411;
+        --surface: #171c18;
+        --surface-raised: #1d241e;
+        --line: #2a332b;
+        --muted: #8b958a;
+        --text: #e8ece3;
+        --lime: #c2ed76;
+        --orange: #e5a15b;
+        --red: #e47768;
+        --mono: "DM Mono", monospace;
+        --display: "Rajdhani", sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-width: 320px;
+        background:
+          radial-gradient(ellipse at 68% -18%, rgba(121, 153, 91, .12), transparent 42%),
+          var(--bg);
+        color: var(--text);
+        font-family: "DM Sans", sans-serif;
+        font-size: 14px;
+      }
+      button { font: inherit; }
+      .app { min-height: 100vh; }
+      .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 5;
+        display: flex;
+        width: 244px;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+        background: rgba(18, 23, 19, .96);
+        padding: 25px 16px 17px;
+      }
+      .brand { display: flex; align-items: center; gap: 11px; padding: 0 8px 31px; }
+      .brand-mark {
+        display: grid; width: 34px; height: 34px; place-items: center;
+        border: 1px solid rgba(194, 237, 118, .42); color: var(--lime);
+        background: rgba(194, 237, 118, .08); transform: rotate(45deg);
+      }
+      .brand-mark svg { transform: rotate(-45deg); }
+      .brand-name { font: 700 22px/1 var(--display); letter-spacing: .13em; }
+      .brand-sub { margin-top: 4px; color: var(--muted); font: 9px var(--mono); letter-spacing: .14em; }
+      .nav-label { padding: 0 10px; margin: 0 0 9px; color: #687268; font: 10px var(--mono); letter-spacing: .13em; }
+      .nav { display: grid; gap: 4px; }
+      .nav button {
+        display: flex; align-items: center; gap: 12px; min-height: 41px;
+        padding: 0 11px; border: 1px solid transparent; border-radius: 3px;
+        background: transparent; color: #a6afa4; text-align: left; cursor: pointer;
+        transition: .18s ease;
+      }
+      .nav button:hover { background: #1b211c; color: var(--text); }
+      .nav button.active { border-color: #343e31; background: #222a20; color: var(--lime); }
+      .nav svg { width: 17px; height: 17px; flex: 0 0 auto; }
+      .nav .nav-count { margin-left: auto; color: var(--orange); font: 10px var(--mono); }
+      .side-bottom { margin-top: auto; }
+      .base-card { padding: 13px; border: 1px solid var(--line); background: #151a16; }
+      .base-card-head { display: flex; justify-content: space-between; color: var(--muted); font: 9px var(--mono); letter-spacing: .1em; }
+      .base-title { margin: 10px 0 4px; font: 600 19px var(--display); letter-spacing: .05em; }
+      .base-location { color: var(--muted); font-size: 11px; }
+      .base-coords { display: flex; justify-content: space-between; margin-top: 14px; color: #a0aaa0; font: 9px var(--mono); }
+      .user { display: flex; align-items: center; gap: 10px; padding: 16px 5px 0; }
+      .avatar { display: grid; width: 33px; height: 33px; place-items: center; border: 1px solid #536049; border-radius: 50%; background: #283125; color: var(--lime); font: 600 13px var(--display); }
+      .user-name { font-size: 12px; font-weight: 600; }
+      .user-role { margin-top: 3px; color: var(--muted); font: 9px var(--mono); letter-spacing: .07em; }
+
+      .main { margin-left: 244px; padding: 0 35px 40px; }
+      .topbar { display: flex; height: 73px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+      .crumb { color: var(--muted); font: 10px var(--mono); letter-spacing: .1em; }
+      .crumb strong { color: #d4dbd0; font-weight: 400; }
+      .top-actions { display: flex; align-items: center; gap: 17px; }
+      .system-state { display: flex; align-items: center; gap: 8px; color: #bdc7b8; font: 10px var(--mono); }
+      .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 10px rgba(194, 237, 118, .7); }
+      .icon-button { position: relative; display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid var(--line); background: var(--surface); color: #b3bcb0; cursor: pointer; }
+      .icon-button:hover { border-color: #60704d; color: var(--lime); }
+      .icon-button svg { width: 16px; height: 16px; }
+      .notification-dot { position: absolute; top: 7px; right: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--orange); }
+      .mobile-menu { display: none; }
+      .page-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding: 28px 0 22px; }
+      .eyebrow { color: var(--lime); font: 10px var(--mono); letter-spacing: .17em; }
+      h1 { margin: 6px 0 3px; font: 700 clamp(31px, 4vw, 42px)/.98 var(--display); letter-spacing: .04em; }
+      .page-subtitle { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+      .date-chip { padding: 9px 11px; border: 1px solid var(--line); color: #b5bfb3; font: 10px var(--mono); white-space: nowrap; }
+
+      .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+      .stat { position: relative; overflow: hidden; min-height: 103px; padding: 15px 16px; border: 1px solid var(--line); background: linear-gradient(135deg, #1a201b, #161b17); }
+      .stat:after { position: absolute; right: -24px; bottom: -41px; width: 93px; height: 93px; border: 1px solid rgba(194, 237, 118, .08); border-radius: 50%; content: ""; box-shadow: 0 0 0 12px rgba(194, 237, 118, .025), 0 0 0 25px rgba(194, 237, 118, .02); }
+      .stat-top { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font: 9px var(--mono); letter-spacing: .09em; }
+      .stat-icon { color: #8e9a87; }
+      .stat-icon svg { width: 16px; height: 16px; }
+      .stat-value { display: flex; align-items: baseline; gap: 8px; margin-top: 10px; font: 600 29px/.9 var(--display); }
+      .stat-unit { color: #99a396; font: 10px var(--mono); }
+      .stat-foot { margin-top: 7px; color: #899486; font-size: 10px; }
+      .stat-foot .positive { color: var(--lime); }
+      .stat-foot .warning { color: var(--orange); }
+      .content-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(270px, .86fr); gap: 14px; }
+      .panel { border: 1px solid var(--line); background: rgba(23, 28, 24, .86); }
+      .panel-heading { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+      .panel-title { font: 600 14px var(--display); letter-spacing: .1em; }
+      .panel-meta { color: var(--muted); font: 9px var(--mono); letter-spacing: .08em; }
+      .map-wrap { position: relative; overflow: hidden; min-height: 330px; background: #151b17; }
+      .map-wrap:before { position: absolute; inset: 0; background-image: linear-gradient(rgba(142, 164, 126, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(142, 164, 126, .045) 1px, transparent 1px); background-size: 29px 29px; content: ""; }
+      .map-wrap:after { position: absolute; inset: 0; background: radial-gradient(ellipse at 51% 48%, transparent 20%, rgba(13, 17, 14, .55) 100%); content: ""; pointer-events: none; }
+      .map-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+      .map-tag { position: absolute; z-index: 1; padding: 5px 7px; border: 1px solid #3b4939; background: rgba(19, 26, 20, .92); color: #bac8b5; font: 9px var(--mono); letter-spacing: .04em; }
+      .map-tag span { color: var(--lime); }
+      .tag-north { top: 11%; left: 42%; }
+      .tag-east { top: 44%; right: 6%; }
+      .tag-west { top: 62%; left: 5%; }
+      .map-coords { position: absolute; z-index: 1; right: 12px; bottom: 11px; color: #7d8978; font: 9px var(--mono); }
+      .map-legend { display: flex; flex-wrap: wrap; gap: 17px; padding: 12px 15px; border-top: 1px solid var(--line); color: var(--muted); font: 9px var(--mono); }
+      .legend-item { display: flex; align-items: center; gap: 6px; }
+      .legend-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--lime); }
+      .legend-dot.orange { background: var(--orange); }
+      .legend-dot.gray { background: #87918a; }
+      .right-column { display: grid; align-content: start; gap: 14px; }
+      .readiness { padding: 15px 16px 17px; }
+      .readiness-top { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font: 9px var(--mono); letter-spacing: .08em; }
+      .readiness-value { margin: 8px 0 12px; font: 600 31px/.95 var(--display); }
+      .readiness-value small { color: var(--muted); font: 12px var(--mono); }
+      .progress { height: 5px; background: #2b332b; }
+      .progress-fill { width: 84%; height: 100%; background: linear-gradient(90deg, #87b750, var(--lime)); box-shadow: 0 0 10px rgba(194, 237, 118, .22); }
+      .readiness-note { margin-top: 10px; color: #96a092; font-size: 10px; }
+      .ops-list { padding: 2px 15px 6px; }
+      .op { display: flex; gap: 11px; padding: 13px 0; border-bottom: 1px solid #293029; }
+      .op:last-child { border-bottom: 0; }
+      .op-icon { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid #394337; background: #222a21; color: var(--lime); }
+      .op-icon.orange { border-color: #574532; background: #2b251d; color: var(--orange); }
+      .op-icon svg { width: 15px; height: 15px; }
+      .op-name { font-size: 11px; font-weight: 600; }
+      .op-detail { margin-top: 4px; color: var(--muted); font: 9px var(--mono); }
+      .op-status { margin-left: auto; padding-top: 2px; color: var(--lime); font: 8px var(--mono); letter-spacing: .07em; white-space: nowrap; }
+      .op-status.watch { color: var(--orange); }
+      .bottom-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(270px, .86fr); gap: 14px; margin-top: 14px; }
+      .resource-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; padding: 4px 15px 13px; }
+      .resource { padding: 12px 10px 7px 0; }
+      .resource + .resource { padding-left: 14px; border-left: 1px solid var(--line); }
+      .resource-label { color: var(--muted); font: 9px var(--mono); letter-spacing: .06em; }
+      .resource-value { margin-top: 6px; font: 600 22px var(--display); }
+      .resource-bar { height: 3px; margin-top: 8px; background: #303830; }
+      .resource-bar span { display: block; height: 100%; background: var(--lime); }
+      .resource:nth-child(2) .resource-bar span { background: #89b8a1; }
+      .resource:nth-child(3) .resource-bar span { background: var(--orange); }
+      .feed { padding: 0 15px 4px; }
+      .feed-line { position: relative; padding: 11px 0 11px 14px; border-bottom: 1px solid #293029; color: #bdc5ba; font-size: 10px; }
+      .feed-line:last-child { border-bottom: 0; }
+      .feed-line:before { position: absolute; top: 16px; left: 0; width: 5px; height: 5px; border-radius: 50%; background: var(--lime); content: ""; }
+      .feed-line.alert:before { background: var(--orange); }
+      .feed-time { margin-right: 7px; color: #7f897d; font: 9px var(--mono); }
+      .footer { display: flex; justify-content: space-between; margin-top: 18px; color: #687267; font: 9px var(--mono); letter-spacing: .06em; }
+      .toast { position: fixed; z-index: 10; right: 25px; bottom: 24px; padding: 12px 16px; border: 1px solid #536344; background: #20291e; color: var(--lime); font: 11px var(--mono); opacity: 0; transform: translateY(10px); transition: .2s ease; pointer-events: none; }
+      .toast.show { opacity: 1; transform: translateY(0); }
+      .section-view { display: none; }
+      .section-view.active { display: block; }
+
+      @media (max-width: 1050px) {
+        .sidebar { width: 210px; }
+        .main { margin-left: 210px; padding-right: 22px; padding-left: 22px; }
+        .stats { grid-template-columns: repeat(2, 1fr); }
+        .content-grid, .bottom-grid { grid-template-columns: minmax(0, 1.25fr) minmax(245px, .85fr); }
+      }
+      @media (max-width: 760px) {
+        .sidebar { width: 64px; align-items: center; padding: 19px 8px 13px; }
+        .brand { padding: 0 0 27px; }
+        .brand-copy, .nav-label, .nav button .nav-text, .nav-count, .base-card, .user-copy { display: none; }
+        .nav { width: 100%; }
+        .nav button { justify-content: center; width: 46px; padding: 0; }
+        .side-bottom { width: 100%; }
+        .user { justify-content: center; padding: 12px 0 0; }
+        .main { margin-left: 64px; padding: 0 16px 28px; }
+        .topbar { height: 61px; }
+        .content-grid, .bottom-grid { grid-template-columns: 1fr; }
+        .map-wrap { min-height: 290px; }
+      }
+      @media (max-width: 480px) {
+        .main { padding-right: 12px; padding-left: 12px; }
+        .page-heading { align-items: flex-start; flex-direction: column; gap: 12px; padding-top: 22px; }
+        .date-chip { align-self: flex-start; }
+        .stats { gap: 8px; }
+        .stat { min-height: 96px; padding: 12px; }
+        .stat-value { font-size: 26px; }
+        .top-actions { gap: 9px; }
+        .system-state { font-size: 8px; }
+        .map-wrap { min-height: 250px; }
+        .map-legend { gap: 10px; }
+        .resource-list { padding-left: 11px; padding-right: 8px; }
+        .resource + .resource { padding-left: 9px; }
+        .resource-label { font-size: 8px; }
+        .footer { gap: 8px; flex-direction: column; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar" aria-label="Navigation principale">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 2 21 7v10l-9 5-9-5V7l9-5Z" stroke="currentColor" stroke-width="1.4"/><path d="m8 15 4-8 4 8m-6.5-3h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"/></svg>
+          </div>
+          <div class="brand-copy"><div class="brand-name">OBSIDIAN</div><div class="brand-sub">SYSTÈME DE COMMANDEMENT</div></div>
+        </div>
+
+        <p class="nav-label">OPÉRATIONS</p>
+        <nav class="nav">
+          <button class="active" type="button" data-view="overview" aria-current="page">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="3.5" width="7" height="7" stroke="currentColor"/><rect x="13.5" y="3.5" width="7" height="7" stroke="currentColor"/><rect x="3.5" y="13.5" width="7" height="7" stroke="currentColor"/><rect x="13.5" y="13.5" width="7" height="7" stroke="currentColor"/></svg><span class="nav-text">Vue générale</span>
+          </button>
+          <button type="button" data-view="map">
+            <svg viewBox="0 0 24 24" fill="none"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z" stroke="currentColor"/><path d="M9 3v15m6-12v15" stroke="currentColor"/></svg><span class="nav-text">Carte tactique</span>
+          </button>
+          <button type="button" data-view="operations">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor"/><circle cx="12" cy="12" r="3.5" stroke="currentColor"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4" stroke="currentColor"/></svg><span class="nav-text">Opérations</span><span class="nav-count">03</span>
+          </button>
+          <button type="button" data-view="personnel">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.5" stroke="currentColor"/><path d="M2.5 20c.4-3.4 2.8-5.5 6.5-5.5s6.1 2.1 6.5 5.5M16 5a3.5 3.5 0 0 1 0 6.8m1.5 2.8c2.2.7 3.5 2.4 4 5.4" stroke="currentColor"/></svg><span class="nav-text">Personnel</span>
+          </button>
+          <button type="button" data-view="logistics">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z" stroke="currentColor"/><path d="m3.5 7.7 8.5 4.5 8.5-4.5M12 12.5V21" stroke="currentColor"/></svg><span class="nav-text">Logistique</span>
+          </button>
+        </nav>
+
+        <div class="side-bottom">
+          <div class="base-card">
+            <div class="base-card-head"><span>INSTALLATION ACTIVE</span><span>●</span></div>
+            <div class="base-title">SECTEUR A-09</div>
+            <div class="base-location">Plateau de Khepri · Zone Nord</div>
+            <div class="base-coords"><span>34°12' N</span><span>06°48' E</span></div>
+          </div>
+          <div class="user">
+            <div class="avatar">ML</div>
+            <div class="user-copy"><div class="user-name">M. Laurent</div><div class="user-role">COMMANDANT DE BASE</div></div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="crumb">OBSIDIAN <span>/</span> <strong id="breadcrumb">CENTRE DE COMMANDEMENT</strong></div>
+          <div class="top-actions">
+            <div class="system-state"><span class="pulse"></span> SYSTÈMES OPÉRATIONNELS</div>
+            <button class="icon-button" id="alertButton" type="button" aria-label="Voir les alertes">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Zm-8 13h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="notification-dot"></span>
+            </button>
+          </div>
+        </header>
+
+        <section class="section-view active" id="overview">
+          <div class="page-heading">
+            <div><div class="eyebrow">MARDI · CYCLE 224 / 06</div><h1>CENTRE DE COMMANDEMENT</h1><p class="page-subtitle">État de la base et synthèse des opérations en cours.</p></div>
+            <div class="date-chip" id="clock">08:42:16 — TEMPS LOCAL</div>
+          </div>
+
+          <div class="stats">
+            <article class="stat">
+              <div class="stat-top"><span>EFFECTIF PRÉSENT</span><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M16 20v-1.5a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4V20m8-12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm5 0h5m-2.5-2.5v5" stroke="currentColor" stroke-width="1.4"/></svg></span></div>
+              <div class="stat-value">1 284 <span class="stat-unit">/ 1 420</span></div><div class="stat-foot"><span class="positive">↗ 96</span> en rotation active</div>
+            </article>
+            <article class="stat">
+              <div class="stat-top"><span>NIVEAU DE VEILLE</span><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 21 7v5c0 5-3.8 8-9 9-5.2-1-9-4-9-9V7l9-4Z" stroke="currentColor" stroke-width="1.4"/><path d="m8.5 12 2.3 2.3 4.8-5" stroke="currentColor" stroke-width="1.4"/></svg></span></div>
+              <div class="stat-value">ALPHA <span class="stat-unit">NIVEAU 2</span></div><div class="stat-foot"><span class="positive">● Stable</span> · dernière revue 08:30</div>
+            </article>
+            <article class="stat">
+              <div class="stat-top"><span>ÉNERGIE DISPONIBLE</span><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M13 2 5 13h6l-1 9 9-12h-6l1-8Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span></div>
+              <div class="stat-value">87<span class="stat-unit">%</span></div><div class="stat-foot"><span class="positive">+4.2%</span> depuis le cycle précédent</div>
+            </article>
+            <article class="stat">
+              <div class="stat-top"><span>ALERTES ACTIVES</span><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 22 20H2L12 3Z" stroke="currentColor" stroke-width="1.4"/><path d="M12 9v5m0 3h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span></div>
+              <div class="stat-value">02 <span class="stat-unit">À TRAITER</span></div><div class="stat-foot"><span class="warning">1 priorité élevée</span> · secteur Est</div>
+            </article>
+          </div>
+
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-heading"><span class="panel-title">CARTE TACTIQUE</span><span class="panel-meta">SECTEUR A-09 · ACTUALISÉE 08:41</span></div>
+              <div class="map-wrap">
+                <svg class="map-svg" viewBox="0 0 760 350" preserveAspectRatio="xMidYMid slice" aria-label="Carte stylisée des installations de la base">
+                  <defs>
+                    <pattern id="terrain" width="38" height="28" patternUnits="userSpaceOnUse"><path d="M0 14 19 0l19 14-19 14L0 14Z" fill="none" stroke="#61705a" stroke-opacity=".16" stroke-width=".8"/></pattern>
+                    <radialGradient id="radar"><stop stop-color="#8db85e" stop-opacity=".08"/><stop offset="1" stop-color="#8db85e" stop-opacity="0"/></radialGradient>
+                  </defs>
+                  <rect width="760" height="350" fill="url(#terrain)"/>
+                  <ellipse cx="380" cy="175" rx="285" ry="190" fill="url(#radar)"/>
+                  <g fill="none" stroke="#64745b" stroke-width="1" stroke-opacity=".42">
+                    <path d="M-20 270C90 224 90 139 196 136s133 85 230 58 101-100 183-99 111 53 184 22"/>
+                    <path d="M-15 285c112-39 128-109 222-112 112-4 134 79 221 53 83-24 107-96 177-92 64 3 102 37 165 14"/>
+                    <path d="M119-20c24 64 72 87 77 145 5 56-30 89-11 146 14 41 59 62 57 99M520-12c-34 56-24 101 13 139s86 47 87 107-40 86-24 128"/>
+                    <path d="M160 75 581 279M265 12 435 332M72 198l603-80"/>
+                  </g>
+                  <g fill="#1d271c" stroke="#758567" stroke-opacity=".62" stroke-width="1.2">
+                    <path d="m300 112 39-21 39 21v43l-39 22-39-22z"/>
+                    <path d="m403 110 30-17 31 17v34l-31 18-30-18z"/>
+                    <path d="m335 205 25-14 26 14v29l-26 15-25-15z"/>
+                    <path d="m477 194 34-19 34 19v39l-34 20-34-20z"/>
+                    <path d="m216 188 24-14 25 14v28l-25 15-24-15z"/>
+                    <path d="m375 63 20-11 21 11v23l-21 12-20-12z"/>
+                  </g>
+                  <g fill="none" stroke="#c2ed76" stroke-opacity=".38">
+                    <circle cx="379" cy="157" r="48"/><circle cx="379" cy="157" r="75" stroke-dasharray="3 6"/>
+                    <path d="M379 75v164M297 157h164"/>
+                  </g>
+                  <g fill="#c2ed76">
+                    <circle cx="379" cy="157" r="4"/><circle cx="340" cy="115" r="3"/><circle cx="448" cy="127" r="3"/>
+                    <circle cx="360" cy="218" r="3"/><circle cx="516" cy="214" r="3" fill="#e5a15b"/>
+                    <circle cx="240" cy="201" r="3" fill="#87918a"/>
+                  </g>
+                  <g fill="none" stroke="#c2ed76" stroke-width="1" opacity=".7"><path d="M379 157h-49l-35-28"/><path d="M448 127h42l21-18"/></g>
+                  <g fill="#aeba9e" font-family="monospace" font-size="8" letter-spacing="1">
+                    <text x="281" y="125">CENTRE OPS.</text><text x="493" y="104">HANGAR 02</text>
+                    <text x="523" y="260">PÉRIMÈTRE E</text><text x="188" y="239">STATION MÉTÉO</text>
+                    <text x="350" y="267">RÉACTEUR B</text><text x="352" y="49">RELAIS COMMS</text>
+                  </g>
+                  <g stroke="#c2ed76" stroke-width="1" fill="none" opacity=".65"><path d="M30 35h16M38 27v16M712 315h16M720 307v16"/></g>
+                </svg>
+                <div class="map-tag tag-north"><span>●</span> CENTRE DE COMMANDEMENT</div>
+                <div class="map-tag tag-east"><span style="color:var(--orange)">●</span> SECTEUR EST · VÉRIFICATION</div>
+                <div class="map-tag tag-west"><span style="color:#87918a">●</span> STATION MÉTÉO</div>
+                <div class="map-coords">GRILLE 04 / 17 · ZOOM 1.0×</div>
+              </div>
+              <div class="map-legend"><span class="legend-item"><i class="legend-dot"></i>INSTALLATIONS</span><span class="legend-item"><i class="legend-dot orange"></i>VÉRIFICATION EN COURS</span><span class="legend-item"><i class="legend-dot gray"></i>CAPTEUR</span></div>
+            </section>
+
+            <div class="right-column">
+              <section class="panel">
+                <div class="panel-heading"><span class="panel-title">ÉTAT DE PRÉPARATION</span><span class="panel-meta">LIVE</span></div>
+                <div class="readiness">
+                  <div class="readiness-top"><span>INDICE GLOBAL</span><span style="color:var(--lime)">● NOMINAL</span></div>
+                  <div class="readiness-value">84<small> / 100</small></div>
+                  <div class="progress"><div class="progress-fill"></div></div>
+                  <div class="readiness-note">Tous les systèmes critiques répondent.</div>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="panel-heading"><span class="panel-title">OPÉRATIONS EN COURS</span><span class="panel-meta">03 ACTIVES</span></div>
+                <div class="ops-list">
+                  <div class="op"><div class="op-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M3 17 12 3l9 14H3Z" stroke="currentColor" stroke-width="1.4"/><path d="M12 9v4m0 2h.01" stroke="currentColor" stroke-width="1.6"/></svg></div><div><div class="op-name">Veille périmétrique</div><div class="op-detail">SECTEUR NORD · ÉQUIPE 04</div></div><span class="op-status">ACTIVE</span></div>
+                  <div class="op"><div class="op-icon orange"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3a9 9 0 1 0 9 9M12 7v5l3 2m1-11v5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></div><div><div class="op-name">Contrôle des capteurs</div><div class="op-detail">SECTEUR EST · ÉQUIPE 02</div></div><span class="op-status watch">EN COURS</span></div>
+                  <div class="op"><div class="op-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 19V5m0 14h16M7 15l4-4 3 2 5-7" stroke="currentColor" stroke-width="1.4"/><path d="M15 6h4v4" stroke="currentColor" stroke-width="1.4"/></svg></div><div><div class="op-name">Calibration radar</div><div class="op-detail">STATION CENTRALE · ÉQUIPE 01</div></div><span class="op-status">72%</span></div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <div class="bottom-grid">
+            <section class="panel">
+              <div class="panel-heading"><span class="panel-title">RESSOURCES DE LA BASE</span><span class="panel-meta">RÉSERVES ESTIMÉES</span></div>
+              <div class="resource-list">
+                <div class="resource"><div class="resource-label">RÉSERVE ÉNERGÉTIQUE</div><div class="resource-value">87%</div><div class="resource-bar"><span style="width:87%"></span></div></div>
+                <div class="resource"><div class="resource-label">EAU POTABLE</div><div class="resource-value">64%</div><div class="resource-bar"><span style="width:64%"></span></div></div>
+                <div class="resource"><div class="resource-label">PROVISIONS</div><div class="resource-value">52%</div><div class="resource-bar"><span style="width:52%"></span></div></div>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><span class="panel-title">JOURNAL SYSTÈME</span><span class="panel-meta">DERNIÈRES ACTIVITÉS</span></div>
+              <div class="feed">
+                <div class="feed-line"><span class="feed-time">08:41</span>Synchronisation des relais terminée</div>
+                <div class="feed-line alert"><span class="feed-time">08:37</span>Contrôle requis — capteur E-12</div>
+                <div class="feed-line"><span class="feed-time">08:30</span>Relève de quart confirmée</div>
+              </div>
+            </section>
+          </div>
+          <footer class="footer"><span>OBSIDIAN OS · VERSION 4.2.1</span><span>CONNEXION SÉCURISÉE <span style="color:var(--lime)">●</span></span></footer>
+        </section>
+
+        <section class="section-view" id="map"><div class="page-heading"><div><div class="eyebrow">SECTEUR A-09</div><h1>CARTE TACTIQUE</h1><p class="page-subtitle">Visualisation synthétique des installations et capteurs.</p></div></div><div id="map-placeholder"></div></section>
+        <section class="section-view" id="operations"><div class="page-heading"><div><div class="eyebrow">SUIVI EN TEMPS RÉEL</div><h1>OPÉRATIONS</h1><p class="page-subtitle">Trois opérations sont actuellement enregistrées.</p></div></div><div class="panel"><div class="ops-list"><div class="op"><div class="op-icon">01</div><div><div class="op-name">Veille périmétrique</div><div class="op-detail">SECTEUR NORD · ÉQUIPE 04</div></div><span class="op-status">ACTIVE</span></div><div class="op"><div class="op-icon orange">02</div><div><div class="op-name">Contrôle des capteurs</div><div class="op-detail">SECTEUR EST · ÉQUIPE 02</div></div><span class="op-status watch">EN COURS</span></div><div class="op"><div class="op-icon">03</div><div><div class="op-name">Calibration radar</div><div class="op-detail">STATION CENTRALE · ÉQUIPE 01</div></div><span class="op-status">72%</span></div></div></div></section>
+        <section class="section-view" id="personnel"><div class="page-heading"><div><div class="eyebrow">RESSOURCES HUMAINES</div><h1>PERSONNEL</h1><p class="page-subtitle">Effectifs et rotations de la base.</p></div></div><div class="panel readiness"><div class="readiness-top"><span>EFFECTIF PRÉSENT</span><span style="color:var(--lime)">ROTATION ACTIVE</span></div><div class="readiness-value">1 284 <small>/ 1 420 membres</small></div><div class="progress"><div class="progress-fill" style="width:90%"></div></div></div></section>
+        <section class="section-view" id="logistics"><div class="page-heading"><div><div class="eyebrow">RESSOURCES & INFRASTRUCTURES</div><h1>LOGISTIQUE</h1><p class="page-subtitle">État des réserves disponibles à la base.</p></div></div><div class="panel resource-list"><div class="resource"><div class="resource-label">RÉSERVE ÉNERGÉTIQUE</div><div class="resource-value">87%</div><div class="resource-bar"><span style="width:87%"></span></div></div><div class="resource"><div class="resource-label">EAU POTABLE</div><div class="resource-value">64%</div><div class="resource-bar"><span style="width:64%"></span></div></div><div class="resource"><div class="resource-label">PROVISIONS</div><div class="resource-value">52%</div><div class="resource-bar"><span style="width:52%"></span></div></div></div></section>
+      </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script>
+      const navButtons = document.querySelectorAll(".nav button");
+      const views = document.querySelectorAll(".section-view");
+      const breadcrumb = document.getElementById("breadcrumb");
+      document.getElementById("map-placeholder").append(
+        document.querySelector("#overview .content-grid > .panel").cloneNode(true)
+      );
+      const labels = {
+        overview: "CENTRE DE COMMANDEMENT",
+        map: "CARTE TACTIQUE",
+        operations: "OPÉRATIONS",
+        personnel: "PERSONNEL",
+        logistics: "LOGISTIQUE"
+      };
+
+      navButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const viewName = button.dataset.view;
+          navButtons.forEach((item) => {
+            item.classList.remove("active");
+            item.removeAttribute("aria-current");
+          });
+          button.classList.add("active");
+          button.setAttribute("aria-current", "page");
+          views.forEach((view) => view.classList.toggle("active", view.id === viewName));
+          breadcrumb.textContent = labels[viewName];
+        });
+      });
+
+      const toast = document.getElementById("toast");
+      let toastTimer;
+      document.getElementById("alertButton").addEventListener("click", () => {
+        toast.textContent = "2 alertes actives — contrôle requis sur le capteur E-12.";
+        toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove("show"), 3200);
+      });
+
+      const clock = document.getElementById("clock");
+      const updateClock = () => {
+        const now = new Date();
+        clock.textContent = `${new Intl.DateTimeFormat("fr-FR", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false
+        }).format(now)} — TEMPS LOCAL`;
+      };
+      updateClock();
+      setInterval(updateClock, 1000);
+    </script>
+  </body>
+</html>
