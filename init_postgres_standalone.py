@@ -1,3 +1,4 @@
+import os
 import sys
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -10,11 +11,11 @@ if sys.platform.startswith("win"):
 
 # CONFIGURATION POSTGRESQL
 
-DB_HOST = "localhost"
-DB_PORT = 5433
-DB_NAME = "sentinel_x"
-DB_USER = "sentinel"
-DB_PASSWORD = "sentinel"
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", "5432"))
+DB_NAME = os.getenv("POSTGRES_DB", os.getenv("DB_NAME", "workshop"))
+DB_USER = os.getenv("POSTGRES_USER", os.getenv("DB_USER", "workshop"))
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", os.getenv("DB_PASSWORD", "workshop_dev"))
 
 
 # CREATION DE LA TABLE ET DES INDEX
