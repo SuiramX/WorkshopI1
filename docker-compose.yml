@@ -26,6 +26,11 @@ services:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: [ "CMD", "mosquitto_sub", "-t", "$$sys/#", "-C", "1", "-i", "healthcheck", "-W", "3" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   db:
@@ -39,14 +44,32 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test: [ "CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"" ]
       interval: 5s
       timeout: 5s
       retries: 10
     restart: unless-stopped
 
+  db-init:
+    image: python:3.11-slim
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-workshop}
+      POSTGRES_USER: ${POSTGRES_USER:-workshop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-workshop_dev}
+    volumes:
+      - ./init_postgres_standalone.py:/app/init_postgres_standalone.py
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir psycopg2-binary && python init_postgres_standalone.py"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   api:
-    profiles: ["api"]
+    profiles: [ "api" ]
     build:
       context: ./API
       dockerfile: Dockerfile
@@ -61,6 +84,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       mqtt:
         condition: service_started
     restart: unless-stopped
