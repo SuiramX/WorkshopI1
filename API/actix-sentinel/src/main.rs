@@ -1,11 +1,12 @@
+use std::{fs::File, io::BufReader, time::Duration, env};
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
-use std::{fs::File, io::BufReader, time::Duration, sync::Mutex};
+use dotenvy::dotenv;
 
 use sea_orm::{entity::prelude::*, Database, DatabaseConnection, EntityTrait};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
-// Define DB Entities
+/* #region DB ENTITIES */
 
 pub mod temperature {
     use super::*;
@@ -58,10 +59,9 @@ pub mod gas {
     impl ActiveModelBehavior for ActiveModel {}
 }
 
-struct AppState {
-    app_name: String,
-    conn: DatabaseConnection,
-}
+/* #endregion */
+
+/* #region INTERFACE STRUCT */
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Temperature {
@@ -87,11 +87,22 @@ struct DateRange {
     end_date: Date,
 }
 
+/* #endregion */
+
+struct AppState {
+    app_name: String,
+    conn: DatabaseConnection,
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    dotenv().ok();
+    
     // DB + App State
-    let database_url = "postgres://postgres:mysecretpassword@localhost:5432/postgres";
-    let conn: DatabaseConnection = Database::connect(database_url)
+    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    let db_url = env::var("DATABASE_URL").unwrap_or_else(|_| "Not configured".to_string());
+
+    let conn: DatabaseConnection = Database::connect(db_url)
         .await
         .expect("Failed to connect to database");
 
@@ -108,7 +119,7 @@ async fn main() -> std::io::Result<()> {
     let mut certs_file = BufReader::new(File::open("cert.pem").unwrap());
     let mut key_file = BufReader::new(File::open("key.pem").unwrap());
 
-    // load TLS certs and key -> create self signed
+    // load TLS certs and key
     let tls_certs = rustls_pemfile::certs(&mut certs_file)
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -136,12 +147,13 @@ async fn main() -> std::io::Result<()> {
             .service(get_gases)
     })
     .keep_alive(Duration::from_secs(75))
-    .bind_rustls_0_23(("127.0.0.1", 8080), tls_config)?
+    .bind_rustls_0_23(("127.0.0.1", port.parse().unwrap()), tls_config)?
+    // .bind_rustls_0_23(("0.0.0.0", port.parse().unwrap()), tls_config)? // 0.0.0.0 = docker bind
     .run()
     .await
 }
 
-// ROUTES
+/* #region ROUTES */
 
 #[get("/")]
 async fn hello(data: web::Data<AppState>) -> impl Responder {
@@ -149,7 +161,7 @@ async fn hello(data: web::Data<AppState>) -> impl Responder {
     HttpResponse::Ok().body(format!("{}", app_name))
 }
 
-// TEMPERATURE ROUTES
+// Temperature
 
 #[post("/temperature")]
 async fn add_temperature(
@@ -196,7 +208,7 @@ async fn get_temperatures(
     HttpResponse::Ok().json(response)
 }
 
-// HUMIDITY ROUTES
+// Humidity
 
 #[post("/humidity")]
 async fn add_humidity(
@@ -243,7 +255,7 @@ async fn get_humidities(
     HttpResponse::Ok().json(response)
 }
 
-// GAS ROUTES
+// Gas
 
 #[post("/gas")]
 async fn add_gas(
@@ -291,3 +303,5 @@ async fn get_gases(
 }
 
 // TODO : STATUS & PRESENCE Routes
+
+/* #endregion */
