@@ -1,4 +1,4 @@
 warning: Cargo.toml: unused manifest key: package.author
 warning: `actix-sentinel` (manifest) generated 1 warning
     Checking actix-sentinel v0.1.0 (E:\Dev\Rust\Web\WorkshopI1\API\actix-sentinel)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.40s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s

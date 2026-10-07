@@ -140,21 +140,26 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
-            .service(hello)
-            .service(get_temperature_test)
-            .service(add_temperature)
-            .service(get_temperatures)
+            .service(actix_sentinel)
+            // Temperatures
+            .service(sensor_temperature)
+            .service(create_temperature)
+            .service(read_temperature)
+            .service(read_temperatures)
+            // Humidity
             .service(get_humidity_test)
             .service(add_humidity)
             .service(get_humidities)
+            // Gas
             .service(get_gas_test)
             .service(add_gas)
             .service(get_gases)
-            .service(get_status)
+            // Presence
             .service(presence)
-            .service(get_temperature_test)
-            .service(get_all_sensors)
             .service(get_mouv)
+            // All
+            .service(get_status)
+            .service(get_all_sensors)
     })
     .keep_alive(Duration::from_secs(75))
     // .bind_rustls_0_23(("127.0.0.1", port.parse().unwrap()), tls_config)?
@@ -166,16 +171,31 @@ async fn main() -> std::io::Result<()> {
 /* #region ROUTES */
 
 #[get("/")]
-async fn hello(data: web::Data<AppState>) -> impl Responder {
+async fn actix_sentinel(data: web::Data<AppState>) -> impl Responder {
     let app_name = &data.app_name;
     HttpResponse::Ok().body(format!("{}", app_name))
 }
 
 // Temperature
 
+async fn get_latest_temp(state: &web::Data<AppState>) -> Option<temperature::Model> {
+    let latest_temp = temperature::Entity::find()
+        .order_by_desc(temperature::Column::Date)
+        .one(&state.conn)
+        .await;
+
+    let temperature: Option<temperature::Model> = match latest_temp {
+        Ok(Some(entry)) => Some(entry),
+        Ok(None) => None,
+        Err(err) => None,
+    };
+
+    return temperature;
+}
+
 /// Get temp from Sensors + store in DB
 #[get("/temperature_sensor")]
-async fn get_temperature_test(state: web::Data<AppState>) -> impl Responder {
+async fn sensor_temperature(state: web::Data<AppState>) -> impl Responder {
     // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "temp"
     let output = Command::new("mosquitto_pub")
         .arg("-h")
@@ -189,12 +209,15 @@ async fn get_temperature_test(state: web::Data<AppState>) -> impl Responder {
     return match output {
         Ok(out) => {
             if out.status.success() {
-                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string(); // json string
 
+                let current_date = chrono::Utc::now().naive_utc().date();
                 let new_entry = temperature::ActiveModel {
-                    date: sea_orm::Set(chrono::naive::NaiveDate::from_ymd_opt(2026, 10, 07).unwrap()),
+                    date: sea_orm::Set(current_date),
                     temperature: sea_orm::Set(stdout.parse().unwrap()),
                 };
+
+                let db_result = new_entry.insert(&state.conn).await;
 
                 HttpResponse::Ok().body(stdout)
             } else {
@@ -208,7 +231,7 @@ async fn get_temperature_test(state: web::Data<AppState>) -> impl Responder {
 
 /// Add temperature to DB -> from JSON in http Request
 #[post("/temperature")]
-async fn add_temperature(
+async fn create_temperature(
     state: web::Data<AppState>,
     payload: web::Json<Temperature>,
 ) -> impl Responder {
@@ -223,9 +246,27 @@ async fn add_temperature(
     }
 }
 
+/// Get Latest Temperature
+#[get("/temperature")]
+async fn read_temperature(state: web::Data<AppState>) -> impl Responder {
+    // Query between date range
+    let temperature = get_latest_temp(&state).await;
+
+    if let Some(temperature) = temperature {
+        let temp = json!({
+            "date": temperature.date.to_string(),
+            "temperature_level": &temperature.temperature,
+        });
+
+        return HttpResponse::Ok().json(temp);
+    }
+
+    return HttpResponse::InternalServerError().body(format!("No DB entry"));
+}
+
 /// Get all Temperatures in the Date Range
 #[get("/temperatures")]
-async fn get_temperatures(
+async fn read_temperatures(
     state: web::Data<AppState>,
     date_range: web::Query<DateRange>,
 ) -> impl Responder {
@@ -272,10 +313,13 @@ async fn get_humidity_test(state: web::Data<AppState>) -> impl Responder {
             if out.status.success() {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
 
+                let current_date = chrono::Utc::now().naive_utc().date();
                 let new_entry = humidity::ActiveModel {
-                    date: sea_orm::Set(chrono::naive::NaiveDate::from_ymd_opt(2026, 10, 07).unwrap()),
+                    date: sea_orm::Set(current_date),
                     humidity: sea_orm::Set(stdout.parse().unwrap()),
                 };
+
+                let db_result = new_entry.insert(&state.conn).await;
 
                 HttpResponse::Ok().body(stdout)
             } else {
@@ -349,8 +393,9 @@ async fn get_gas_test(state: web::Data<AppState>) -> impl Responder {
             if out.status.success() {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
 
+                let current_date = chrono::Utc::now().naive_utc().date();
                 let new_entry = gas::ActiveModel {
-                    date: sea_orm::Set(chrono::naive::NaiveDate::from_ymd_opt(2026, 10, 07).unwrap()),
+                    date: sea_orm::Set(current_date),
                     gas_level: sea_orm::Set(stdout.parse().unwrap()),
                 };
 
