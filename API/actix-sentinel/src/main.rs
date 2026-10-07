@@ -153,6 +153,8 @@ async fn main() -> std::io::Result<()> {
             .service(get_status)
             .service(presence)
             .service(get_temperature_test)
+            .service(get_all_sensors)
+            .service(get_mouv)
     })
     .keep_alive(Duration::from_secs(75))
     // .bind_rustls_0_23(("127.0.0.1", port.parse().unwrap()), tls_config)?
@@ -507,7 +509,7 @@ async fn presence(state: web::Data<AppState>) -> impl Responder {
 
 /// Get Mouvement
 #[get("/mouv")]
-async fn get_all_sensors(state: web::Data<AppState>) -> impl Responder {
+async fn get_mouv(state: web::Data<AppState>) -> impl Responder {
     // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
     let output = Command::new("mosquitto_pub")
         .arg("-h")

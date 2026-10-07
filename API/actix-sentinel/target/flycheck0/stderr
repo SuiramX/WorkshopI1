@@ -1,6 +1,4 @@
 warning: Cargo.toml: unused manifest key: package.author
 warning: `actix-sentinel` (manifest) generated 1 warning
     Checking actix-sentinel v0.1.0 (E:\Dev\Rust\Web\WorkshopI1\API\actix-sentinel)
-error: could not compile `actix-sentinel` (bin "actix-sentinel") due to 2 previous errors; 12 warnings emitted
-warning: build failed, waiting for other jobs to finish...
-error: could not compile `actix-sentinel` (bin "actix-sentinel" test) due to 2 previous errors; 12 warnings emitted
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.40s
