@@ -7,7 +7,12 @@ export default function WebcamFeed() {
 
   useEffect(() => {
     let lastUrl = null;
-    const ws = new WebSocket("ws://192.168.1.9:8080/video");
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const host = window.location.hostname || "192.168.1.9";
+    const defaultWsUrl = `${protocol}//${host}:8765/video`;
+    const wsUrl = import.meta.env.VITE_WS_VIDEO_URL || defaultWsUrl;
+
+    const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {

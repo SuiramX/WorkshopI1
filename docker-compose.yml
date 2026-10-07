@@ -68,6 +68,20 @@ services:
         condition: service_healthy
     restart: "no"
 
+  video:
+    build:
+      context: ./IA
+      dockerfile: Dockerfile
+    environment:
+      PORT: 8765
+      DEVICE: /dev/video0
+      FPS: 30
+    ports:
+      - "${VIDEO_PORT:-8765}:8765"
+    devices:
+      - "/dev/video0:/dev/video0"
+    restart: unless-stopped
+
   api:
     profiles: [ "api" ]
     build:
