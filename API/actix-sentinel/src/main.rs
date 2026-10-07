@@ -192,8 +192,8 @@ async fn main() -> std::io::Result<()> {
             .service(get_all_sensors)
     })
     .keep_alive(Duration::from_secs(75))
-    .bind_rustls_0_23(("127.0.0.1", port.parse().unwrap()), tls_config)?
-    // .bind_rustls_0_23(("0.0.0.0", port.parse().unwrap()), tls_config)? // 0.0.0.0 = docker bind
+    // .bind_rustls_0_23(("127.0.0.1", port.parse().unwrap()), tls_config)?
+    .bind_rustls_0_23(("0.0.0.0", port.parse().unwrap()), tls_config)? // 0.0.0.0 = docker bind
     .run()
     .await
 }
