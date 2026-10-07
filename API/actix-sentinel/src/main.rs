@@ -1,10 +1,12 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 use dotenvy::dotenv;
-use std::{env, fs::File, io::BufReader, time::Duration};
+use std::{env, fs::File, io::BufReader, process::Command, time::Duration};
 
 use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryOrder, entity::prelude::*};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+
+use chrono;
 
 /* #region DB ENTITIES */
 
@@ -100,7 +102,7 @@ async fn main() -> std::io::Result<()> {
 
     // DB + App State
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
-    let db_url = env::var("DATABASE_URL").unwrap_or_else(|_| "Not configured".to_string());
+    let db_url = env::var("DATABASE_URL").expect("DB URL");
 
     let conn: DatabaseConnection = Database::connect(db_url)
         .await
@@ -139,13 +141,18 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(state.clone())
             .service(hello)
+            .service(get_temperature_test)
             .service(add_temperature)
             .service(get_temperatures)
+            .service(get_humidity_test)
             .service(add_humidity)
             .service(get_humidities)
+            .service(get_gas_test)
             .service(add_gas)
             .service(get_gases)
             .service(get_status)
+            .service(presence)
+            .service(get_temperature_test)
     })
     .keep_alive(Duration::from_secs(75))
     // .bind_rustls_0_23(("127.0.0.1", port.parse().unwrap()), tls_config)?
@@ -164,6 +171,40 @@ async fn hello(data: web::Data<AppState>) -> impl Responder {
 
 // Temperature
 
+/// Get temp from Sensors + store in DB
+#[get("/temperature_sensor")]
+async fn get_temperature_test(state: web::Data<AppState>) -> impl Responder {
+    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "temp"
+    let output = Command::new("mosquitto_pub")
+        .arg("-h")
+        .arg("192.168.1.9")
+        .arg("-t")
+        .arg("'esp8266/cmd'")
+        .arg("-m")
+        .arg("'temp'")
+        .output();
+
+    return match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+                let new_entry = temperature::ActiveModel {
+                    date: sea_orm::Set(chrono::naive::NaiveDate::from_ymd_opt(2026, 10, 07).unwrap()),
+                    temperature: sea_orm::Set(stdout.parse().unwrap()),
+                };
+
+                HttpResponse::Ok().body(stdout)
+            } else {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                HttpResponse::InternalServerError().body(stderr)
+            }
+        }
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    };
+}
+
+/// Add temperature to DB -> from JSON in http Request
 #[post("/temperature")]
 async fn add_temperature(
     state: web::Data<AppState>,
@@ -181,7 +222,7 @@ async fn add_temperature(
 }
 
 /// Get all Temperatures in the Date Range
-#[get("/temperature")]
+#[get("/temperatures")]
 async fn get_temperatures(
     state: web::Data<AppState>,
     date_range: web::Query<DateRange>,
@@ -210,6 +251,39 @@ async fn get_temperatures(
 }
 
 // Humidity
+
+/// Get hum from Sensors + store in DB
+#[get("/humidity_sensor")]
+async fn get_humidity_test(state: web::Data<AppState>) -> impl Responder {
+    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
+    let output = Command::new("mosquitto_pub")
+        .arg("-h")
+        .arg("192.168.1.9")
+        .arg("-t")
+        .arg("'esp8266/cmd'")
+        .arg("-m")
+        .arg("'hum'")
+        .output();
+
+    return match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+                let new_entry = humidity::ActiveModel {
+                    date: sea_orm::Set(chrono::naive::NaiveDate::from_ymd_opt(2026, 10, 07).unwrap()),
+                    humidity: sea_orm::Set(stdout.parse().unwrap()),
+                };
+
+                HttpResponse::Ok().body(stdout)
+            } else {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                HttpResponse::InternalServerError().body(stderr)
+            }
+        }
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    };
+}
 
 #[post("/humidity")]
 async fn add_humidity(state: web::Data<AppState>, payload: web::Json<Humidity>) -> impl Responder {
@@ -255,6 +329,39 @@ async fn get_humidities(
 
 // Gas
 
+/// Get gas from Sensors + store in DB
+#[get("/gas_sensor")]
+async fn get_gas_test(state: web::Data<AppState>) -> impl Responder {
+    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
+    let output = Command::new("mosquitto_pub")
+        .arg("-h")
+        .arg("192.168.1.9")
+        .arg("-t")
+        .arg("'esp8266/cmd'")
+        .arg("-m")
+        .arg("'gaz'")
+        .output();
+
+    return match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+                let new_entry = gas::ActiveModel {
+                    date: sea_orm::Set(chrono::naive::NaiveDate::from_ymd_opt(2026, 10, 07).unwrap()),
+                    gas_level: sea_orm::Set(stdout.parse().unwrap()),
+                };
+
+                HttpResponse::Ok().body(stdout)
+            } else {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                HttpResponse::InternalServerError().body(stderr)
+            }
+        }
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    };
+}
+
 #[post("/gas")]
 async fn add_gas(state: web::Data<AppState>, payload: web::Json<Gas>) -> impl Responder {
     let new_entry = gas::ActiveModel {
@@ -295,6 +402,34 @@ async fn get_gases(
         .collect();
 
     HttpResponse::Ok().json(response)
+}
+
+/// Get all sensor
+#[get("/all_sensors")]
+async fn get_all_sensors(state: web::Data<AppState>) -> impl Responder {
+    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
+    let output = Command::new("mosquitto_pub")
+        .arg("-h")
+        .arg("192.168.1.9")
+        .arg("-t")
+        .arg("'esp8266/cmd'")
+        .arg("-m")
+        .arg("'get_all'")
+        .output();
+
+    return match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+                HttpResponse::Ok().body(stdout)
+            } else {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                HttpResponse::InternalServerError().body(stderr)
+            }
+        }
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    };
 }
 
 /// Get Latest Sensors Values
@@ -368,6 +503,34 @@ async fn presence(state: web::Data<AppState>) -> impl Responder {
     // TODO
 
     HttpResponse::Ok().body(format!("Presence Detected"))
+}
+
+/// Get Mouvement
+#[get("/mouv")]
+async fn get_all_sensors(state: web::Data<AppState>) -> impl Responder {
+    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
+    let output = Command::new("mosquitto_pub")
+        .arg("-h")
+        .arg("192.168.1.9")
+        .arg("-t")
+        .arg("'esp8266/cmd'")
+        .arg("-m")
+        .arg("'mouv'")
+        .output();
+
+    return match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+                HttpResponse::Ok().body(stdout)
+            } else {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                HttpResponse::InternalServerError().body(stderr)
+            }
+        }
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    };
 }
 
 /* #endregion */
