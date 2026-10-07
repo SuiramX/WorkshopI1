@@ -7,7 +7,7 @@ export default function WebcamFeed() {
 
   useEffect(() => {
     let lastUrl = null;
-    const ws = new WebSocket("ws://10.60.64.49:8080/video");
+    const ws = new WebSocket("ws://192.168.1.9:8080/video");
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
