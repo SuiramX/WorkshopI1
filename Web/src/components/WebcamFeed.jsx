@@ -1,38 +1,46 @@
 import { useEffect, useRef, useState } from "react";
 
 export default function WebcamFeed() {
-  const videoRef = useRef(null);
+  const imgRef = useRef(null);
   const [error, setError] = useState(null);
   const [active, setActive] = useState(false);
 
   useEffect(() => {
-    let streamInstance = null;
+    let lastUrl = null;
+    const ws = new WebSocket("ws://10.60.64.49:8080/video");
+    ws.binaryType = "arraybuffer";
 
-    async function startCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { 
-            width: { ideal: 1920 }, 
-            height: { ideal: 1080 } 
-          },
-          audio: false,
-        });
-        streamInstance = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          setActive(true);
-        }
-      } catch (err) {
-        console.error("Erreur accès webcam:", err);
-        setError("FLUX CAMÉRA NON DISPONIBLE OU ACCÈS REFUSÉ");
+    ws.onopen = () => {
+      setActive(true);
+      setError(null);
+    };
+
+    ws.onmessage = (e) => {
+      const blob = new Blob([e.data], { type: "image/jpeg" });
+      const url = URL.createObjectURL(blob);
+      if (imgRef.current) {
+        imgRef.current.src = url;
       }
-    }
+      if (lastUrl) {
+        URL.revokeObjectURL(lastUrl);
+      }
+      lastUrl = url;
+    };
 
-    startCamera();
+    ws.onerror = (err) => {
+      console.error("Erreur WebSocket webcam:", err);
+      setError("FLUX CAMÉRA NON DISPONIBLE OU ERREUR DE CONNEXION");
+      setActive(false);
+    };
+
+    ws.onclose = () => {
+      setActive(false);
+    };
 
     return () => {
-      if (streamInstance) {
-        streamInstance.getTracks().forEach((track) => track.stop());
+      ws.close();
+      if (lastUrl) {
+        URL.revokeObjectURL(lastUrl);
       }
     };
   }, []);
@@ -49,7 +57,7 @@ export default function WebcamFeed() {
           </div>
         ) : (
           <>
-            <video ref={videoRef} autoPlay playsInline muted className="webcam-video" />
+            <img id="video" ref={imgRef} alt="Flux vidéo live" className="webcam-video" />
             <div className="webcam-overlay">
               <span className="webcam-tag">
                 <i className="dot" style={{ background: active ? "var(--red)" : "var(--muted)" }}></i>
