@@ -98,7 +98,7 @@ struct AppState {
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
     
-    // DB + App State
+    let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let db_url = env::var("DATABASE_URL").unwrap_or_else(|_| "Not configured".to_string());
 
@@ -167,8 +167,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_gases)
     })
     .keep_alive(Duration::from_secs(75))
-    .bind_rustls_0_23(("127.0.0.1", port.parse().unwrap()), tls_config)?
-    // .bind_rustls_0_23(("0.0.0.0", port.parse().unwrap()), tls_config)? // 0.0.0.0 = docker bind
+    .bind_rustls_0_23((host.as_str(), port.parse().unwrap()), tls_config)?
     .run()
     .await
 }
