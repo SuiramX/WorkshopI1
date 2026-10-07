@@ -1,9 +1,32 @@
-const http = require("node:http");
-const fs = require("node:fs");
-const path = require("node:path");
+import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const port = Number(process.env.PORT || 3000);
-const indexPath = path.join(__dirname, "public", "index.html");
+const distDir = path.join(__dirname, "dist");
+
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".wasm": "application/wasm",
+};
 
 const server = http.createServer((req, res) => {
   if (req.url === "/health") {
@@ -18,22 +41,28 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.url !== "/" && req.url !== "/index.html") {
-    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    res.end("Page introuvable");
-    return;
-  }
+  const safePath = path.normalize(decodeURIComponent(req.url.split("?")[0])).replace(/^(\.\.[\/\\])+/, "");
+  let filePath = path.join(distDir, safePath);
 
-  fs.readFile(indexPath, (error, content) => {
-    if (error) {
-      console.error("Impossible de lire la page d'accueil :", error);
-      res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-      res.end("Erreur interne du serveur");
-      return;
+  fs.stat(filePath, (err, stats) => {
+    if (err || !stats.isFile()) {
+      filePath = path.join(distDir, "index.html");
     }
 
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(req.method === "HEAD" ? undefined : content);
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || "application/octet-stream";
+
+    fs.readFile(filePath, (error, content) => {
+      if (error) {
+        console.error("Erreur de lecture de fichier :", error);
+        res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+        res.end("Erreur interne du serveur");
+        return;
+      }
+
+      res.writeHead(200, { "content-type": contentType });
+      res.end(req.method === "HEAD" ? undefined : content);
+    });
   });
 });
 

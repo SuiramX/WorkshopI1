@@ -26,41 +26,68 @@ services:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
+    healthcheck:
+      test: [ "CMD", "mosquitto_sub", "-t", "$$sys/#", "-C", "1", "-i", "healthcheck", "-W", "3" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
 
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-workshop}
-      POSTGRES_USER: ${POSTGRES_USER:-workshop}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-workshop_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel_x}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinel_secure_pass}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test: [ "CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"" ]
       interval: 5s
       timeout: 5s
       retries: 10
     restart: unless-stopped
 
-  api:
-    profiles: ["api"]
-    build:
-      context: ./API
-      dockerfile: Dockerfile
-      args:
-        BIN_NAME: ${RUST_BIN_NAME:-api}
+  db-init:
+    image: python:3.11-slim
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-workshop}:${POSTGRES_PASSWORD:-workshop_dev}@db:5432/${POSTGRES_DB:-workshop}
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel_x}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinel_secure_pass}
+    volumes:
+      - ./init_postgres_standalone.py:/app/init_postgres_standalone.py
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir psycopg2-binary python-dotenv && python init_postgres_standalone.py"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    profiles: [ "api" ]
+    build:
+      context: ./API/actix-sentinel
+      dockerfile: Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      DATABASE_URL: postgres://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_secure_pass}@db:5432/${POSTGRES_DB:-sentinel_x}
       MQTT_HOST: mqtt
       MQTT_PORT: 1883
+      TLS_CERT: ${TLS_CERT:-}
+      TLS_KEY: ${TLS_KEY:-}
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       mqtt:
         condition: service_started
     restart: unless-stopped
