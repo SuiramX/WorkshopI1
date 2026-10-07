@@ -36,9 +36,9 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-workshop}
-      POSTGRES_USER: ${POSTGRES_USER:-workshop}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-workshop_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel_x}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinel_secure_pass}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -55,14 +55,14 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 5432
-      POSTGRES_DB: ${POSTGRES_DB:-workshop}
-      POSTGRES_USER: ${POSTGRES_USER:-workshop}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-workshop_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel_x}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinel_secure_pass}
     volumes:
       - ./init_postgres_standalone.py:/app/init_postgres_standalone.py
     working_dir: /app
     command: >
-      sh -c "pip install --no-cache-dir psycopg2-binary && python init_postgres_standalone.py"
+      sh -c "pip install --no-cache-dir psycopg2-binary python-dotenv && python init_postgres_standalone.py"
     depends_on:
       db:
         condition: service_healthy
@@ -76,7 +76,7 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8080
-      DATABASE_URL: postgres://${POSTGRES_USER:-workshop}:${POSTGRES_PASSWORD:-workshop_dev}@db:5432/${POSTGRES_DB:-workshop}
+      DATABASE_URL: postgres://${POSTGRES_USER:-sentinel}:${POSTGRES_PASSWORD:-sentinel_secure_pass}@db:5432/${POSTGRES_DB:-sentinel_x}
       MQTT_HOST: mqtt
       MQTT_PORT: 1883
       TLS_CERT: ${TLS_CERT:-}

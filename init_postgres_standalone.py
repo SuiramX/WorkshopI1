@@ -3,23 +3,26 @@ import sys
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # Affichage UTF-8
 if sys.platform.startswith("win"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 
-# CONFIGURATION POSTGRESQL
-
+# CONFIGURATION POSTGRESQL (Synchronisée avec le .env)
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = int(os.getenv("DB_PORT", "5432"))
-DB_NAME = os.getenv("POSTGRES_DB", os.getenv("DB_NAME", "workshop"))
-DB_USER = os.getenv("POSTGRES_USER", os.getenv("DB_USER", "workshop"))
-DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", os.getenv("DB_PASSWORD", "workshop_dev"))
+DB_NAME = os.getenv("POSTGRES_DB", os.getenv("DB_NAME", "sentinel_x"))
+DB_USER = os.getenv("POSTGRES_USER", os.getenv("DB_USER", "sentinel"))
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", os.getenv("DB_PASSWORD", "sentinel_secure_pass"))
 
 
-# CREATION DE LA TABLE ET DES INDEX
-
+# CREATION DE TOUTES LES TABLES ET DES INDEX
 SQL_CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS sensor_readings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -29,6 +32,21 @@ CREATE TABLE IF NOT EXISTS sensor_readings (
     gas_level DOUBLE PRECISION NOT NULL,
     presence BOOLEAN NOT NULL DEFAULT false,
     device_id VARCHAR(50)
+);
+
+CREATE TABLE IF NOT EXISTS temperatures (
+    date DATE PRIMARY KEY,
+    temperature DOUBLE PRECISION NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS humidities (
+    date DATE PRIMARY KEY,
+    humidity DOUBLE PRECISION NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gases (
+    date DATE PRIMARY KEY,
+    gas_level DOUBLE PRECISION NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS ix_sensor_readings_timestamp
