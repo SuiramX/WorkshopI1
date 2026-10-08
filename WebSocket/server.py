@@ -23,6 +23,9 @@ WS_AUTH_TOKEN = os.environ.get("WS_AUTH_TOKEN", "")
 MAX_CLIENTS = int(os.environ.get("MAX_CLIENTS", 5))
 
 
+STREAM_MODE = os.environ.get("STREAM_MODE", "camera").lower()  # 'camera' (direct) or 'ia' (relay from IA module)
+
+
 class FrameBuffer:
     """Thread-safe frame buffer holding the latest captured camera frame."""
     def __init__(self):
@@ -136,14 +139,14 @@ def find_camera_device(target_name="C920"):
 
 def camera_capture_worker():
     """
-    Dedicated worker thread for camera capture.
+    Dedicated worker thread for camera capture in direct 'camera' mode.
     Prevents blocking the asyncio event loop and optimizes CPU usage.
     """
     encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY]
     cap = None
     active_device = None
 
-    logger.info("Camera capture worker thread started.")
+    logger.info("Direct camera capture worker thread started.")
 
     while True:
         try:
@@ -214,7 +217,7 @@ def camera_capture_worker():
 
 
 async def ws_handler(websocket, *args, **kwargs):
-    """Handles new WebSocket client connections with authentication and limits."""
+    """Handles WebSocket connections for both consumers (viewers) and producers (IA module)."""
     client_ip = getattr(websocket, "remote_address", "unknown")
 
     # 1. Enforce authentication if WS_AUTH_TOKEN is set
@@ -228,7 +231,43 @@ async def ws_handler(websocket, *args, **kwargs):
                 pass
             return
 
-    # 2. Enforce concurrent client limit
+    # 2. Extract request path
+    req_path = getattr(websocket, "path", None)
+    if not req_path and hasattr(websocket, "request"):
+        req_path = getattr(websocket.request, "path", "")
+    req_path = req_path or ""
+    parsed_path = urllib.parse.urlparse(req_path).path
+
+    # 3. Handle IA Producer connection (/publish, /ws/publish, /input, /push)
+    if parsed_path in ("/publish", "/ws/publish", "/input", "/ws/input", "/push"):
+        logger.info(f"IA Video Producer connected from {client_ip} on path '{parsed_path}'")
+        try:
+            async for message in websocket:
+                if isinstance(message, bytes):
+                    frame_buffer.set_frame(message)
+                elif isinstance(message, str):
+                    try:
+                        import base64
+                        import json
+                        if message.startswith("{"):
+                            data = json.loads(message)
+                            b64 = data.get("frame", "")
+                            if b64.startswith("data:image"):
+                                b64 = b64.split(",", 1)[1]
+                            frame_buffer.set_frame(base64.b64decode(b64))
+                        else:
+                            frame_buffer.set_frame(base64.b64decode(message))
+                    except Exception as parse_err:
+                        logger.debug(f"Could not parse string frame from producer: {parse_err}")
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        except Exception as err:
+            logger.warning(f"IA Video Producer connection error: {err}")
+        finally:
+            logger.info(f"IA Video Producer disconnected: {client_ip}")
+        return
+
+    # 4. Handle Video Consumer client (dashboard/browser viewers)
     async with clients_lock:
         if len(connected_clients) >= MAX_CLIENTS:
             logger.warning(f"Connection rejected from {client_ip}: maximum client limit ({MAX_CLIENTS}) reached")
@@ -267,15 +306,20 @@ async def ws_handler(websocket, *args, **kwargs):
 
 
 async def main():
-    logger.info(f"Starting Video WebSocket Server on 0.0.0.0:{PORT} (Auto-target: '{CAMERA_NAME}')...")
+    mode_desc = "IA Stream Relay (Annotated Feed)" if STREAM_MODE in ("ia", "ai", "relay") else "Direct Camera Capture"
+    logger.info(f"Starting Video WebSocket Server on 0.0.0.0:{PORT} [Mode: {STREAM_MODE.upper()} - {mode_desc}]...")
     if WS_AUTH_TOKEN:
         logger.info("Security: Token authentication is ENABLED.")
     else:
         logger.warning("Security: WS_AUTH_TOKEN is not configured! All connections will be allowed.")
 
-    # Start camera worker in background thread
-    worker_thread = threading.Thread(target=camera_capture_worker, daemon=True, name="CameraCaptureWorker")
-    worker_thread.start()
+    # Start direct camera worker thread only if in 'camera' mode
+    if STREAM_MODE in ("camera", "direct", "raw"):
+        logger.info(f"Mode is '{STREAM_MODE}': launching local camera capture worker.")
+        worker_thread = threading.Thread(target=camera_capture_worker, daemon=True, name="CameraCaptureWorker")
+        worker_thread.start()
+    else:
+        logger.info(f"Mode is '{STREAM_MODE}': waiting for IA module to publish annotated video frames on /publish.")
 
     async with websockets.serve(ws_handler, "0.0.0.0", PORT, max_size=10 * 1024 * 1024, ping_interval=20, ping_timeout=20):
         await asyncio.Future()
