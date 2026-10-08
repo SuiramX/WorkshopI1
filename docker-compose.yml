@@ -79,6 +79,7 @@ services:
       dockerfile: Dockerfile
     environment:
       PORT: 8765
+      STREAM_MODE: ${STREAM_MODE:-camera} # Mode: 'camera' (direct raw stream) or 'ia' (IA-annotated stream)
       DEVICE: ${VIDEO_DEVICE:-auto}
       CAMERA_NAME: ${CAMERA_NAME:-C920}
       FPS: ${FPS:-25}
@@ -94,6 +95,33 @@ services:
     volumes:
       - /dev:/dev
       - /sys:/sys:ro
+    restart: unless-stopped
+
+  ia:
+    build:
+      context: ./IA
+      dockerfile: Dockerfile
+    environment:
+      STREAM_SERVER_URL: ws://video:8765/publish
+      WS_AUTH_TOKEN: ${WS_AUTH_TOKEN:-sentinel_ws_secure_stream_token_9x7k2}
+      API_ALERTS_URL: http://api:8080/api/v1/alerts
+      DEVICE: ${VIDEO_DEVICE:-auto}
+      CAMERA_NAME: ${CAMERA_NAME:-C920}
+      FPS: ${FPS:-25}
+      JPEG_QUALITY: ${JPEG_QUALITY:-65}
+      CONFIDENCE_THRESHOLD: ${CONFIDENCE_THRESHOLD:-0.50}
+      SIMILARITY_THRESHOLD: ${SIMILARITY_THRESHOLD:-0.40}
+      ENABLE_GUI: "false"
+    device_cgroup_rules:
+      - "c 81:* rmw"
+    volumes:
+      - /dev:/dev
+      - /sys:/sys:ro
+      - ./IA/authorized_faces:/app/authorized_faces
+      - ./IA/blacklist:/app/blacklist
+      - ./IA/models:/app/models
+    depends_on:
+      - video
     restart: unless-stopped
 
   api:
