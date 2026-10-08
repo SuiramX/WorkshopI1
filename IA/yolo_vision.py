@@ -13,12 +13,10 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
-# ── LOGGING ──
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
-logger = logging.getLogger("IAVision")
+# ── CONFIGURATION ──
+STREAM_SERVER_URL = os.getenv("STREAM_SERVER_URL", "http://localhost:8001")
+API_FRAME_URL = f"{STREAM_SERVER_URL}/api/v1/video/frame"
+CONFIDENCE_THRESHOLD = 0.50          # Seuil détection YOLOv8
 
 # ── CONFIGURATION ──
 API_ALERTS_URL = os.getenv("API_ALERTS_URL", "http://api:8080/api/v1/alerts")
@@ -52,7 +50,7 @@ BLACKLIST_DIR = os.path.join(os.path.dirname(__file__), "blacklist")
 YUNET_PATH = os.path.join(MODELS_DIR, "face_detection_yunet.onnx")
 SFACE_PATH = os.path.join(MODELS_DIR, "face_recognition_sface.onnx")
 
-YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2026mar.onnx"
 SFACE_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
 
 
@@ -240,25 +238,18 @@ def load_face_database(directory_path, face_detector, face_recognizer, label_nam
 
 
 # ─────────────────────────────────────────────────────────────
-# ENVOI DES ALERTES À L'API
+# 4. FONCTION : API REST
 # ─────────────────────────────────────────────────────────────
-def send_alert_to_api(status_msg: str, box_coords: list, threat_name: str = "INTRUDER", level: str = "critical"):
-    payload = {
-        "level": level,
-        "source": "ai_vision",
-        "title": f"🚨 {level.upper()}: {threat_name.upper()}",
-        "message": f"{status_msg}. Box coordinates: {box_coords}",
-        "presence": True
-    }
-
-    try:
-        response = requests.post(API_ALERTS_URL, json=payload, timeout=1.5)
-        if response.status_code in (200, 201):
-            logger.info(f"[API] Alert successfully dispatched (HTTP {response.status_code})")
-        else:
-            logger.warning(f"[API] Unexpected API response : HTTP {response.status_code}")
-    except Exception as err:
-        logger.debug(f"[API] Cannot reach API ({err}). Standalone mode active.")
+def send_alert_rest(status_msg: str, box_coords: list, threat_name: str = "INTRUDER", level: str = "critical"):
+    """
+    Point d'entrée pour votre propre API Rest personnalisée.
+    Appelé automatiquement en cas d'anomalie détectée (intrus, blacklisté, objet suspect).
+    """
+    # ── PLACEZ VOTRE PROPRE CODE D'APPEL API REST CI-DESSOUS ──
+    # Exemple :
+    # payload = {"level": level, "threat": threat_name, "message": status_msg, "box": box_coords}
+    # requests.post("VOTRE_URL_API_REST", json=payload)
+    pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -457,17 +448,25 @@ def main():
                     label_w, label_h = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.50, 2)[0]
                     cv2.rectangle(frame, (x1, max(0, y1 - 25)), (x1 + label_w + 10, max(25, y1)), color, -1)
                     text_color = (0, 0, 0) if (color == (0, 255, 0) or color == (0, 165, 255)) else (255, 255, 255)
-                    cv2.putText(frame, label, (x1 + 5, max(18, y1 - 7)), cv2.FONT_HERSHEY_SIMPLEX, 0.50, text_color, 2)
+                    cv2.putText(
+                        frame,
+                        label,
+                        (x1 + 5, max(18, y1 - 7)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.50,
+                        text_color,
+                        2
+                    )
 
-            # 4. ALERTE API EN CAS D'ANOMALIE
+            # 4. DÉCLENCHEMENT DE L'ALERTE EN CAS D'ANOMALIE
             if critical_anomaly or warning_anomaly:
                 now = time.time()
                 if now - last_alert_time > ALERT_COOLDOWN_SEC:
                     last_alert_time = now
                     threat_summary = ", ".join(sorted(set(detected_threat_types))) or "ANOMALIE"
                     alert_level = "critical" if critical_anomaly else "warning"
-                    logger.warning(f"Événement [{alert_level.upper()}] détecté : {threat_summary}")
-                    send_alert_to_api(f"Détection périmétrique : {threat_summary}", alert_box, threat_summary, level=alert_level)
+                    print(f"[IA] 🚨 ÉVÉNEMENT [{alert_level.upper()}] : {threat_summary} !")
+                    send_alert_rest(f"Détection périmétrique : {threat_summary}", alert_box, threat_summary, level=alert_level)
 
             # Bandeau de statut
             if critical_anomaly:
