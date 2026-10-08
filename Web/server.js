@@ -66,6 +66,81 @@ const server = http.createServer((req, res) => {
   });
 });
 
+const videoHost = process.env.VIDEO_HOST || "video";
+const videoPort = Number(process.env.VIDEO_PORT || 8765);
+const wsAuthToken = process.env.WS_AUTH_TOKEN || "";
+
+server.on("upgrade", (req, clientSocket, head) => {
+  let pathname = "/";
+  try {
+    pathname = new URL(req.url, `http://${req.headers.host || "localhost"}`).pathname;
+  } catch {
+    pathname = req.url.split("?")[0];
+  }
+
+  if (pathname === "/ws/video" || pathname === "/video" || pathname === "/ws") {
+    const backendPath = `/video?token=${encodeURIComponent(wsAuthToken)}`;
+
+    const backendReq = http.request({
+      hostname: videoHost,
+      port: videoPort,
+      path: backendPath,
+      method: "GET",
+      headers: {
+        ...req.headers,
+        host: `${videoHost}:${videoPort}`,
+      },
+    });
+
+    backendReq.on("upgrade", (backendRes, backendSocket, backendHead) => {
+      clientSocket.write(
+        `HTTP/1.1 101 Switching Protocols\r\n` +
+          Object.entries(backendRes.headers)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join("\r\n") +
+          "\r\n\r\n"
+      );
+
+      if (backendHead && backendHead.length > 0) {
+        clientSocket.write(backendHead);
+      }
+      if (head && head.length > 0) {
+        backendSocket.write(head);
+      }
+
+      backendSocket.pipe(clientSocket);
+      clientSocket.pipe(backendSocket);
+
+      const cleanup = () => {
+        try {
+          backendSocket.destroy();
+        } catch (_) {}
+        try {
+          clientSocket.destroy();
+        } catch (_) {}
+      };
+
+      backendSocket.on("error", cleanup);
+      clientSocket.on("error", cleanup);
+      backendSocket.on("close", cleanup);
+      clientSocket.on("close", cleanup);
+    });
+
+    backendReq.on("error", (err) => {
+      console.error("Erreur de proxy vers le flux vidéo backend:", err.message);
+      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      clientSocket.destroy();
+    });
+
+    backendReq.end();
+  } else {
+    clientSocket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+    clientSocket.destroy();
+  }
+});
+
 server.listen(port, "0.0.0.0", () => {
   console.log(`Application web démarrée sur le port ${port}`);
+  console.log(`Proxy WebSocket vidéo configuré vers ${videoHost}:${videoPort}`);
 });
+

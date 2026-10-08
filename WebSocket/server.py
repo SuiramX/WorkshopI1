@@ -2,6 +2,7 @@ import asyncio
 import glob
 import logging
 import os
+import urllib.parse
 import cv2
 import websockets
 
@@ -15,10 +16,38 @@ PORT = int(os.environ.get("PORT", 8765))
 CAMERA_NAME = os.environ.get("CAMERA_NAME", "C920")
 DEVICE_CONFIG = os.environ.get("DEVICE", "auto")
 FPS = int(os.environ.get("FPS", 30))
+WS_AUTH_TOKEN = os.environ.get("WS_AUTH_TOKEN", "")
+MAX_CLIENTS = int(os.environ.get("MAX_CLIENTS", 5))
 
 connected_clients = set()
 latest_frame_jpeg = None
 clients_lock = asyncio.Lock()
+
+
+def extract_token(websocket):
+    """Extracts authentication token from query string or request headers."""
+    # 1. Check path / query string
+    req_path = getattr(websocket, "path", None)
+    if not req_path and hasattr(websocket, "request"):
+        req_path = getattr(websocket.request, "path", "")
+    req_path = req_path or ""
+
+    parsed = urllib.parse.urlparse(req_path)
+    query_params = urllib.parse.parse_qs(parsed.query)
+    tokens = query_params.get("token", [])
+    if tokens:
+        return tokens[0]
+
+    # 2. Check Authorization or X-Auth-Token headers
+    headers = getattr(websocket, "request_headers", None) or getattr(getattr(websocket, "request", None), "headers", None)
+    if headers:
+        auth_header = headers.get("Authorization") or headers.get("X-Auth-Token")
+        if auth_header:
+            if auth_header.startswith("Bearer "):
+                return auth_header[7:].strip()
+            return auth_header.strip()
+
+    return None
 
 
 def find_camera_device(target_name="C920"):
@@ -155,12 +184,32 @@ async def capture_loop():
 
 
 async def ws_handler(websocket, *args, **kwargs):
-    """Handles new WebSocket client connections."""
+    """Handles new WebSocket client connections with authentication and limits."""
     client_ip = getattr(websocket, "remote_address", "unknown")
-    logger.info(f"Client connected: {client_ip}")
 
+    # 1. Enforce authentication if WS_AUTH_TOKEN is set
+    if WS_AUTH_TOKEN:
+        token = extract_token(websocket)
+        if token != WS_AUTH_TOKEN:
+            logger.warning(f"Unauthorized connection attempt rejected from {client_ip}")
+            try:
+                await websocket.close(code=4401, reason="Unauthorized: Invalid or missing token")
+            except Exception:
+                pass
+            return
+
+    # 2. Enforce concurrent client limit
     async with clients_lock:
+        if len(connected_clients) >= MAX_CLIENTS:
+            logger.warning(f"Connection rejected from {client_ip}: maximum client limit ({MAX_CLIENTS}) reached")
+            try:
+                await websocket.close(code=4429, reason="Too many connections")
+            except Exception:
+                pass
+            return
         connected_clients.add(websocket)
+
+    logger.info(f"Client authenticated and connected: {client_ip} (Active clients: {len(connected_clients)})")
 
     try:
         if latest_frame_jpeg is not None:
@@ -175,15 +224,20 @@ async def ws_handler(websocket, *args, **kwargs):
     finally:
         async with clients_lock:
             connected_clients.discard(websocket)
-        logger.info(f"Client disconnected: {client_ip}")
+        logger.info(f"Client disconnected: {client_ip} (Active clients: {len(connected_clients)})")
 
 
 async def main():
     logger.info(f"Starting Video WebSocket Server on 0.0.0.0:{PORT} (Auto-target: '{CAMERA_NAME}')...")
+    if WS_AUTH_TOKEN:
+        logger.info("Security: Token authentication is ENABLED.")
+    else:
+        logger.warning("Security: WS_AUTH_TOKEN is not configured! All connections will be allowed.")
     asyncio.create_task(capture_loop())
 
     async with websockets.serve(ws_handler, "0.0.0.0", PORT, max_size=10 * 1024 * 1024):
         await asyncio.Future()
+
 
 
 if __name__ == "__main__":

@@ -7,43 +7,65 @@ export default function WebcamFeed() {
 
   useEffect(() => {
     let lastUrl = null;
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = window.location.hostname || "192.168.1.9";
-    const defaultWsUrl = `${protocol}//${host}:8765/video`;
-    const wsUrl = import.meta.env.VITE_WS_VIDEO_URL || defaultWsUrl;
+    let ws = null;
+    let reconnectTimer = null;
+    let isMounted = true;
 
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = "arraybuffer";
+    function connect() {
+      if (!isMounted) return;
 
-    ws.onopen = () => {
-      setActive(true);
-      setError(null);
-    };
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      // window.location.host includes hostname and port (e.g. 192.168.1.9:3000)
+      const defaultWsUrl = `${protocol}//${window.location.host}/ws/video`;
+      const wsUrl = import.meta.env.VITE_WS_VIDEO_URL || defaultWsUrl;
 
-    ws.onmessage = (e) => {
-      const blob = new Blob([e.data], { type: "image/jpeg" });
-      const url = URL.createObjectURL(blob);
-      if (imgRef.current) {
-        imgRef.current.src = url;
-      }
-      if (lastUrl) {
-        URL.revokeObjectURL(lastUrl);
-      }
-      lastUrl = url;
-    };
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
 
-    ws.onerror = (err) => {
-      console.error("Erreur WebSocket webcam:", err);
-      setError("FLUX CAMÉRA NON DISPONIBLE OU ERREUR DE CONNEXION");
-      setActive(false);
-    };
+      ws.onopen = () => {
+        if (!isMounted) return;
+        setActive(true);
+        setError(null);
+      };
 
-    ws.onclose = () => {
-      setActive(false);
-    };
+      ws.onmessage = (e) => {
+        if (!isMounted) return;
+        const blob = new Blob([e.data], { type: "image/jpeg" });
+        const url = URL.createObjectURL(blob);
+        if (imgRef.current) {
+          imgRef.current.src = url;
+        }
+        if (lastUrl) {
+          URL.revokeObjectURL(lastUrl);
+        }
+        lastUrl = url;
+      };
+
+      ws.onerror = (err) => {
+        console.error("Erreur WebSocket webcam:", err);
+        if (!isMounted) return;
+        setError("FLUX CAMÉRA NON DISPONIBLE OU ERREUR DE CONNEXION");
+        setActive(false);
+      };
+
+      ws.onclose = () => {
+        if (!isMounted) return;
+        setActive(false);
+        // Automatic reconnection attempt after 2.5 seconds
+        reconnectTimer = setTimeout(connect, 2500);
+      };
+    }
+
+    connect();
 
     return () => {
-      ws.close();
+      isMounted = false;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      if (ws) {
+        ws.close();
+      }
       if (lastUrl) {
         URL.revokeObjectURL(lastUrl);
       }
