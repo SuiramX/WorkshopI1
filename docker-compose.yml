@@ -74,12 +74,15 @@ services:
       dockerfile: Dockerfile
     environment:
       PORT: 8765
-      DEVICE: /dev/video0
+      DEVICE: ${VIDEO_DEVICE:-auto}
+      CAMERA_NAME: ${CAMERA_NAME:-C920}
       FPS: 30
     ports:
       - "${VIDEO_PORT:-8765}:8765"
-    devices:
-      - "/dev/video0:/dev/video0"
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - /sys:/sys:ro
     restart: unless-stopped
 
   api:
