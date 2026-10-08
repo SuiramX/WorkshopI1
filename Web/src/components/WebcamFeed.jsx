@@ -1,21 +1,43 @@
 import { useEffect, useRef, useState } from "react";
 
 export default function WebcamFeed() {
-  const imgRef = useRef(null);
+  const canvasRef = useRef(null);
   const [error, setError] = useState(null);
   const [active, setActive] = useState(false);
+  const [measuredFps, setMeasuredFps] = useState(0);
 
   useEffect(() => {
-    let lastUrl = null;
     let ws = null;
     let reconnectTimer = null;
     let isMounted = true;
+    let animId = null;
+    let latestBitmap = null;
+    let frameCount = 0;
+    let lastFpsCalc = performance.now();
+
+    const canvas = canvasRef.current;
+    const ctx = canvas ? canvas.getContext("2d") : null;
+
+    function renderLoop() {
+      if (latestBitmap && ctx && canvas) {
+        if (canvas.width !== latestBitmap.width || canvas.height !== latestBitmap.height) {
+          canvas.width = latestBitmap.width;
+          canvas.height = latestBitmap.height;
+        }
+        ctx.drawImage(latestBitmap, 0, 0);
+        latestBitmap.close();
+        latestBitmap = null;
+      }
+      if (isMounted) {
+        animId = requestAnimationFrame(renderLoop);
+      }
+    }
+    animId = requestAnimationFrame(renderLoop);
 
     function connect() {
       if (!isMounted) return;
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // window.location.host includes hostname and port (e.g. 192.168.1.9:3000)
       const defaultWsUrl = `${protocol}//${window.location.host}/ws/video`;
       const wsUrl = import.meta.env.VITE_WS_VIDEO_URL || defaultWsUrl;
 
@@ -28,17 +50,26 @@ export default function WebcamFeed() {
         setError(null);
       };
 
-      ws.onmessage = (e) => {
+      ws.onmessage = async (e) => {
         if (!isMounted) return;
-        const blob = new Blob([e.data], { type: "image/jpeg" });
-        const url = URL.createObjectURL(blob);
-        if (imgRef.current) {
-          imgRef.current.src = url;
+        try {
+          const blob = new Blob([e.data], { type: "image/jpeg" });
+          const bitmap = await createImageBitmap(blob);
+          if (latestBitmap) {
+            latestBitmap.close();
+          }
+          latestBitmap = bitmap;
+
+          frameCount++;
+          const now = performance.now();
+          if (now - lastFpsCalc >= 1000) {
+            setMeasuredFps(Math.round((frameCount * 1000) / (now - lastFpsCalc)));
+            frameCount = 0;
+            lastFpsCalc = now;
+          }
+        } catch (err) {
+          console.error("Frame render error:", err);
         }
-        if (lastUrl) {
-          URL.revokeObjectURL(lastUrl);
-        }
-        lastUrl = url;
       };
 
       ws.onerror = (err) => {
@@ -51,8 +82,7 @@ export default function WebcamFeed() {
       ws.onclose = () => {
         if (!isMounted) return;
         setActive(false);
-        // Automatic reconnection attempt after 2.5 seconds
-        reconnectTimer = setTimeout(connect, 2500);
+        reconnectTimer = setTimeout(connect, 2000);
       };
     }
 
@@ -60,15 +90,10 @@ export default function WebcamFeed() {
 
     return () => {
       isMounted = false;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
-      if (ws) {
-        ws.close();
-      }
-      if (lastUrl) {
-        URL.revokeObjectURL(lastUrl);
-      }
+      if (animId) cancelAnimationFrame(animId);
+      if (latestBitmap) latestBitmap.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (ws) ws.close();
     };
   }, []);
 
@@ -84,13 +109,13 @@ export default function WebcamFeed() {
           </div>
         ) : (
           <>
-            <img id="video" ref={imgRef} alt="Flux vidéo live" className="webcam-video" />
+            <canvas ref={canvasRef} className="webcam-video" />
             <div className="webcam-overlay">
               <span className="webcam-tag">
                 <i className="dot" style={{ background: active ? "var(--red)" : "var(--muted)" }}></i>
                 {active ? "REC // LIVE" : "CONNEXION..."}
               </span>
-              <span className="webcam-fps">30 FPS // 1080P</span>
+              <span className="webcam-fps">{active && measuredFps > 0 ? `${measuredFps} FPS` : "LIVE STREAM"} // HD</span>
             </div>
           </>
         )}
