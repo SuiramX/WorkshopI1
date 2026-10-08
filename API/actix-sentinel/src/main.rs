@@ -1,7 +1,12 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 use chrono;
 use dotenvy::dotenv;
-use std::{env, fs, io::{BufReader, Cursor}, process::Command, time::Duration};
+use std::{
+    env, fs,
+    io::{BufReader, Cursor},
+    process::Command,
+    time::Duration,
+};
 
 // DB Interactions
 use sea_orm::{
@@ -139,10 +144,12 @@ fn tls_config() -> rustls::ServerConfig {
         let cert_path = env::var("TLS_CERT_PATH").unwrap_or_else(|_| "cert.pem".to_string());
         let key_path = env::var("TLS_KEY_PATH").unwrap_or_else(|_| "key.pem".to_string());
         (
-            fs::read(&cert_path)
-                .unwrap_or_else(|err| panic!("Failed to read certificate at '{}': {}", cert_path, err)),
-            fs::read(&key_path)
-                .unwrap_or_else(|err| panic!("Failed to read private key at '{}': {}", key_path, err)),
+            fs::read(&cert_path).unwrap_or_else(|err| {
+                panic!("Failed to read certificate at '{}': {}", cert_path, err)
+            }),
+            fs::read(&key_path).unwrap_or_else(|err| {
+                panic!("Failed to read private key at '{}': {}", key_path, err)
+            }),
         )
     };
 
@@ -214,6 +221,7 @@ async fn main() -> std::io::Result<()> {
     })
     .keep_alive(Duration::from_secs(75))
     .bind_rustls_0_23((host.as_str(), port.parse().unwrap()), tls_config)?
+    // .bind((host.as_str(), port.parse().unwrap()))?
     .run()
     .await
 }
@@ -260,22 +268,30 @@ async fn sensor_temperature(state: web::Data<AppState>) -> impl Responder {
         .arg("-h")
         .arg("192.168.1.9")
         .arg("-t")
-        .arg("'esp8266/cmd'")
+        .arg("esp8266/cmd")
         .arg("-m")
-        .arg("'temp'")
+        .arg("temp")
         .output();
 
     return match output {
         Ok(out) => {
             if out.status.success() {
+                // Get sensor value
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string(); // json string
+                let parsed: Option<Value> = serde_json::from_str(&stdout).ok();
+
+                let Some(parsed) = parsed else {
+                    return HttpResponse::InternalServerError().body("Failed to parse Sensor JSON");
+                };
+
+                let temp = parsed["temperature"].as_f64();
 
                 // Store entry to DB if connected
-                if let Some(conn) = &state.conn {
+                if let Some(conn) = &state.conn && let Some(value) = temp {
                     let current_date = chrono::Utc::now().naive_utc().date();
                     let new_entry = temperature::ActiveModel {
                         date: sea_orm::Set(current_date),
-                        temperature: sea_orm::Set(stdout.parse().unwrap()),
+                        temperature: sea_orm::Set(value),
                     };
 
                     let db_result = new_entry.insert(conn).await;
@@ -396,22 +412,30 @@ async fn sensor_humidity(state: web::Data<AppState>) -> impl Responder {
         .arg("-h")
         .arg("192.168.1.9")
         .arg("-t")
-        .arg("'esp8266/cmd'")
+        .arg("esp8266/cmd")
         .arg("-m")
-        .arg("'hum'")
+        .arg("hum")
         .output();
 
     return match output {
         Ok(out) => {
             if out.status.success() {
+                // Get sensor value
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let parsed: Option<Value> = serde_json::from_str(&stdout).ok();
+
+                let Some(parsed) = parsed else {
+                    return HttpResponse::InternalServerError().body("Failed to parse Sensor JSON");
+                };
+
+                let hum = parsed["humidite"].as_f64();
 
                 // Store entry to DB if connected
-                if let Some(conn) = &state.conn {
+                if let Some(conn) = &state.conn && let Some(value) = hum {
                     let current_date = chrono::Utc::now().naive_utc().date();
                     let new_entry = humidity::ActiveModel {
                         date: sea_orm::Set(current_date),
-                        humidity: sea_orm::Set(stdout.parse().unwrap()),
+                        humidity: sea_orm::Set(value),
                     };
 
                     let db_result = new_entry.insert(conn).await;
@@ -532,22 +556,30 @@ async fn sensor_gas(state: web::Data<AppState>) -> impl Responder {
         .arg("-h")
         .arg("192.168.1.9")
         .arg("-t")
-        .arg("'esp8266/cmd'")
+        .arg("esp8266/cmd")
         .arg("-m")
-        .arg("'gaz'")
+        .arg("gaz")
         .output();
 
     return match output {
         Ok(out) => {
             if out.status.success() {
+                // Get sensor value
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let parsed: Option<Value> = serde_json::from_str(&stdout).ok();
+
+                let Some(parsed) = parsed else {
+                    return HttpResponse::InternalServerError().body("Failed to parse Sensor JSON");
+                };
+
+                let gas = parsed["gaz"].as_f64();
 
                 // Store entry to DB if connected
-                if let Some(conn) = &state.conn {
+                if let Some(conn) = &state.conn && let Some(value) = gas {
                     let current_date = chrono::Utc::now().naive_utc().date();
                     let new_entry = gas::ActiveModel {
                         date: sea_orm::Set(current_date),
-                        gas_level: sea_orm::Set(stdout.parse().unwrap()),
+                        gas_level: sea_orm::Set(value),
                     };
                 }
 
@@ -679,15 +711,17 @@ async fn get_all_sensors(state: web::Data<AppState>) -> impl Responder {
         .arg("-h")
         .arg("192.168.1.9")
         .arg("-t")
-        .arg("'esp8266/cmd'")
+        .arg("esp8266/cmd")
         .arg("-m")
-        .arg("'get_all'")
+        .arg("get_all")
         .output();
 
     return match output {
         Ok(out) => {
             if out.status.success() {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+                // TODO : Add to DB
 
                 HttpResponse::Ok().body(stdout)
             } else {
