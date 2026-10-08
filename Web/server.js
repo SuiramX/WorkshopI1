@@ -28,6 +28,28 @@ const MIME_TYPES = {
   ".wasm": "application/wasm",
 };
 
+// In-memory cache for static files to prevent SD card / disk I/O bottlenecks on Raspberry Pi
+const fileCache = new Map();
+
+function getCachedFile(filePath) {
+  if (fileCache.has(filePath)) {
+    return fileCache.get(filePath);
+  }
+  try {
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      const content = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType = MIME_TYPES[ext] || "application/octet-stream";
+      const fileData = { content, contentType };
+      fileCache.set(filePath, fileData);
+      return fileData;
+    }
+  } catch (err) {
+    console.error("Cache read error:", err);
+  }
+  return null;
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
@@ -41,29 +63,38 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const safePath = path.normalize(decodeURIComponent(req.url.split("?")[0])).replace(/^(\.\.[\/\\])+/, "");
+  const cleanUrl = req.url.split("?")[0];
+  const safePath = path.normalize(decodeURIComponent(cleanUrl)).replace(/^(\.\.[\/\\])+/, "");
   let filePath = path.join(distDir, safePath);
 
-  fs.stat(filePath, (err, stats) => {
-    if (err || !stats.isFile()) {
-      filePath = path.join(distDir, "index.html");
-    }
+  let cached = getCachedFile(filePath);
+  const isHashedAsset = cleanUrl.startsWith("/assets/");
 
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = MIME_TYPES[ext] || "application/octet-stream";
+  if (!cached) {
+    filePath = path.join(distDir, "index.html");
+    cached = getCachedFile(filePath);
+  }
 
-    fs.readFile(filePath, (error, content) => {
-      if (error) {
-        console.error("Erreur de lecture de fichier :", error);
-        res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-        res.end("Erreur interne du serveur");
-        return;
-      }
+  if (!cached) {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("404 Not Found");
+    return;
+  }
 
-      res.writeHead(200, { "content-type": contentType });
-      res.end(req.method === "HEAD" ? undefined : content);
-    });
-  });
+  const headers = {
+    "content-type": cached.contentType,
+    "content-length": cached.content.length,
+  };
+
+  // Cache static assets aggressively, keep index.html fresh
+  if (isHashedAsset) {
+    headers["cache-control"] = "public, max-age=31536000, immutable";
+  } else {
+    headers["cache-control"] = "public, max-age=0, must-revalidate";
+  }
+
+  res.writeHead(200, headers);
+  res.end(req.method === "HEAD" ? undefined : cached.content);
 });
 
 const videoHost = process.env.VIDEO_HOST || "video";
@@ -71,6 +102,9 @@ const videoPort = Number(process.env.VIDEO_PORT || 8765);
 const wsAuthToken = process.env.WS_AUTH_TOKEN || "";
 
 server.on("upgrade", (req, clientSocket, head) => {
+  // Disable Nagle algorithm on incoming client socket for instant low-latency delivery
+  clientSocket.setNoDelay(true);
+
   let pathname = "/";
   try {
     pathname = new URL(req.url, `http://${req.headers.host || "localhost"}`).pathname;
@@ -93,6 +127,9 @@ server.on("upgrade", (req, clientSocket, head) => {
     });
 
     backendReq.on("upgrade", (backendRes, backendSocket, backendHead) => {
+      // Disable Nagle algorithm on backend video socket
+      backendSocket.setNoDelay(true);
+
       clientSocket.write(
         `HTTP/1.1 101 Switching Protocols\r\n` +
           Object.entries(backendRes.headers)
@@ -128,13 +165,17 @@ server.on("upgrade", (req, clientSocket, head) => {
 
     backendReq.on("error", (err) => {
       console.error("Erreur de proxy vers le flux vidéo backend:", err.message);
-      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      try {
+        clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      } catch (_) {}
       clientSocket.destroy();
     });
 
     backendReq.end();
   } else {
-    clientSocket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+    try {
+      clientSocket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+    } catch (_) {}
     clientSocket.destroy();
   }
 });
@@ -143,4 +184,3 @@ server.listen(port, "0.0.0.0", () => {
   console.log(`Application web démarrée sur le port ${port}`);
   console.log(`Proxy WebSocket vidéo configuré vers ${videoHost}:${videoPort}`);
 });
-

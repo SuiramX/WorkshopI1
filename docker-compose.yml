@@ -81,7 +81,8 @@ services:
       PORT: 8765
       DEVICE: ${VIDEO_DEVICE:-auto}
       CAMERA_NAME: ${CAMERA_NAME:-C920}
-      FPS: 30
+      FPS: ${FPS:-25}
+      JPEG_QUALITY: ${JPEG_QUALITY:-65}
       WS_AUTH_TOKEN: ${WS_AUTH_TOKEN:-sentinel_ws_secure_stream_token_9x7k2}
       MAX_CLIENTS: 5
     # Port 8765 is isolated inside the Docker network (only readable by 'web' server)
