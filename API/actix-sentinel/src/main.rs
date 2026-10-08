@@ -259,14 +259,19 @@ async fn get_latest_temp(conn: &DatabaseConnection) -> Option<temperature::Model
     return temperature;
 }
 
+fn get_mqtt_host() -> String {
+    env::var("MQTT_HOST").unwrap_or_else(|_| "192.168.1.9".to_string())
+}
+
 /// Get Temperature from Sensor
 /// Store to DB
 #[get("/temperature/sensor")]
 async fn sensor_temperature(state: web::Data<AppState>) -> impl Responder {
     // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "temp"
     let output = Command::new("/usr/bin/mosquitto_pub")
+    let mqtt_host = get_mqtt_host();
         .arg("-h")
-        .arg("192.168.1.9")
+        .arg(&mqtt_host)
         .arg("-t")
         .arg("esp8266/cmd")
         .arg("-m")
@@ -342,7 +347,7 @@ async fn read_temperature(state: web::Data<AppState>) -> impl Responder {
         return HttpResponse::Ok().json(temp);
     }
 
-    return HttpResponse::InternalServerError().body(format!("No DB entry"));
+    return HttpResponse::NotFound().body("No DB entry");
 }
 
 /// Get all Temperatures in the Date Range
@@ -403,8 +408,9 @@ async fn get_latest_humidity(conn: &DatabaseConnection) -> Option<humidity::Mode
 async fn sensor_humidity(state: web::Data<AppState>) -> impl Responder {
     // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
     let output = Command::new("/usr/bin/mosquitto_pub")
+    let mqtt_host = get_mqtt_host();
         .arg("-h")
-        .arg("192.168.1.9")
+        .arg(&mqtt_host)
         .arg("-t")
         .arg("esp8266/cmd")
         .arg("-m")
@@ -480,7 +486,7 @@ async fn read_humidity(state: web::Data<AppState>) -> impl Responder {
         return HttpResponse::Ok().json(temp);
     }
 
-    return HttpResponse::InternalServerError().body(format!("No DB entry"));
+    return HttpResponse::NotFound().body("No DB entry");
 }
 
 /// Get all Humidities in the Date Range
@@ -541,8 +547,9 @@ async fn get_latest_gas_level(conn: &DatabaseConnection) -> Option<gas::Model> {
 async fn sensor_gas(state: web::Data<AppState>) -> impl Responder {
     // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
     let output = Command::new("/usr/bin/mosquitto_pub")
+    let mqtt_host = get_mqtt_host();
         .arg("-h")
-        .arg("192.168.1.9")
+        .arg(&mqtt_host)
         .arg("-t")
         .arg("esp8266/cmd")
         .arg("-m")
@@ -613,7 +620,7 @@ async fn read_gas(state: web::Data<AppState>) -> impl Responder {
         return HttpResponse::Ok().json(temp);
     }
 
-    return HttpResponse::InternalServerError().body(format!("No DB entry"));
+    return HttpResponse::NotFound().body("No DB entry");
 }
 
 /// Get all Gases in the Date Range
@@ -658,12 +665,13 @@ async fn read_gas_range(
 async fn sensor_presence(state: web::Data<AppState>) -> impl Responder {
     // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
     let output = Command::new("/usr/bin/mosquitto_pub")
+    let mqtt_host = get_mqtt_host();
         .arg("-h")
-        .arg("192.168.1.9")
+        .arg(&mqtt_host)
         .arg("-t")
-        .arg("'esp8266/cmd'")
+        .arg("esp8266/cmd")
         .arg("-m")
-        .arg("'mouv'")
+        .arg("mouv")
         .output();
 
     return match output {
@@ -690,8 +698,9 @@ async fn sensor_presence(state: web::Data<AppState>) -> impl Responder {
 async fn get_all_sensors(state: web::Data<AppState>) -> impl Responder {
     // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
     let output = Command::new("/usr/bin/mosquitto_pub")
+    let mqtt_host = get_mqtt_host();
         .arg("-h")
-        .arg("192.168.1.9")
+        .arg(&mqtt_host)
         .arg("-t")
         .arg("esp8266/cmd")
         .arg("-m")
