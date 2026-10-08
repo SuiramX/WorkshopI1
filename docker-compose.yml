@@ -79,7 +79,8 @@ services:
       FPS: 30
     ports:
       - "${VIDEO_PORT:-8765}:8765"
-    privileged: true
+    device_cgroup_rules:
+      - "c 81:* rmw"
     volumes:
       - /dev:/dev
       - /sys:/sys:ro
