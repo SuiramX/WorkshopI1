@@ -59,6 +59,8 @@ function parseStatus(payload) {
   return { temperature, humidity, gas, smoke, intrusion, cyber };
 }
 
+const generateId = () => Math.random().toString(36).substring(2, 9) + "_" + Date.now();
+
 export default function App() {
   const [data, setData] = useState(initialData);
   const [history, setHistory] = useState([]);
@@ -113,9 +115,9 @@ export default function App() {
           };
 
           // Historique : 30 dernières mesures pour les graphiques
-          setHistory((prev) =>
+          setHistory((prevHist) =>
             [
-              ...prev,
+              ...prevHist,
               {
                 time:        currentTime,
                 temperature: nextTemp  != null ? +Number(nextTemp).toFixed(1)  : null,
@@ -136,8 +138,13 @@ export default function App() {
           if (nextCyber != null && nextCyber > 5)   found.push({ level: "alerte",   message: "Tentatives de connexion suspectes" });
 
           if (found.length > 0) {
-            const withInfo = found.map((a) => ({ ...a, time: currentTime, id: crypto.randomUUID() }));
-            setAlerts((prev) => [...withInfo, ...prev].slice(0, 20));
+            setAlerts((prevAlerts) => {
+              // Évite les doublons identiques consécutifs
+              const newAlerts = found
+                .filter((f) => !prevAlerts.slice(0, 3).some((p) => p.message === f.message))
+                .map((a) => ({ ...a, time: currentTime, id: generateId() }));
+              return [...newAlerts, ...prevAlerts].slice(0, 20);
+            });
           }
 
           return nextData;
