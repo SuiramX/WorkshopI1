@@ -70,7 +70,7 @@ services:
 
   video:
     build:
-      context: ./IA
+      context: ./WebSocket
       dockerfile: Dockerfile
     environment:
       PORT: 8765
