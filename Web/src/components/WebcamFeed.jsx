@@ -7,38 +7,65 @@ export default function WebcamFeed() {
 
   useEffect(() => {
     let lastUrl = null;
-    const ws = new WebSocket("ws://192.168.1.9:8080/video");
-    ws.binaryType = "arraybuffer";
+    let ws = null;
+    let reconnectTimer = null;
+    let isMounted = true;
 
-    ws.onopen = () => {
-      setActive(true);
-      setError(null);
-    };
+    function connect() {
+      if (!isMounted) return;
 
-    ws.onmessage = (e) => {
-      const blob = new Blob([e.data], { type: "image/jpeg" });
-      const url = URL.createObjectURL(blob);
-      if (imgRef.current) {
-        imgRef.current.src = url;
-      }
-      if (lastUrl) {
-        URL.revokeObjectURL(lastUrl);
-      }
-      lastUrl = url;
-    };
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      // window.location.host includes hostname and port (e.g. 192.168.1.9:3000)
+      const defaultWsUrl = `${protocol}//${window.location.host}/ws/video`;
+      const wsUrl = import.meta.env.VITE_WS_VIDEO_URL || defaultWsUrl;
 
-    ws.onerror = (err) => {
-      console.error("Erreur WebSocket webcam:", err);
-      setError("FLUX CAMÉRA NON DISPONIBLE OU ERREUR DE CONNEXION");
-      setActive(false);
-    };
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
 
-    ws.onclose = () => {
-      setActive(false);
-    };
+      ws.onopen = () => {
+        if (!isMounted) return;
+        setActive(true);
+        setError(null);
+      };
+
+      ws.onmessage = (e) => {
+        if (!isMounted) return;
+        const blob = new Blob([e.data], { type: "image/jpeg" });
+        const url = URL.createObjectURL(blob);
+        if (imgRef.current) {
+          imgRef.current.src = url;
+        }
+        if (lastUrl) {
+          URL.revokeObjectURL(lastUrl);
+        }
+        lastUrl = url;
+      };
+
+      ws.onerror = (err) => {
+        console.error("Erreur WebSocket webcam:", err);
+        if (!isMounted) return;
+        setError("FLUX CAMÉRA NON DISPONIBLE OU ERREUR DE CONNEXION");
+        setActive(false);
+      };
+
+      ws.onclose = () => {
+        if (!isMounted) return;
+        setActive(false);
+        // Automatic reconnection attempt after 2.5 seconds
+        reconnectTimer = setTimeout(connect, 2500);
+      };
+    }
+
+    connect();
 
     return () => {
-      ws.close();
+      isMounted = false;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      if (ws) {
+        ws.close();
+      }
       if (lastUrl) {
         URL.revokeObjectURL(lastUrl);
       }
