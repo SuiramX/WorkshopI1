@@ -15,6 +15,9 @@ ENV PIP_DEFAULT_TIMEOUT=1000 \
     PIP_RETRIES=10 \
     PYTHONUNBUFFERED=1
 
+# Install PyTorch CPU first (avoids downloading ~4.5 GB of NVIDIA CUDA packages on ARM/CPU)
+RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu torch torchvision
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir --default-timeout=1000 --retries 10 -r requirements.txt
 
