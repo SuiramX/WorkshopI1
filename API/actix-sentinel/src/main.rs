@@ -264,29 +264,40 @@ fn start_mqtt_subscriber(
 
                             if let Some(conn) = conn_opt.as_ref().cloned() {
                                 let handle_clone = handle.clone();
+                                let data_clone = data.clone();
                                 handle_clone.spawn(async move {
                                     let now = chrono::Utc::now();
-                                    if let Some(temp) = data.temperature {
+                                    if let Some(temp) = data_clone.temperature {
                                         let entry = temperature::ActiveModel {
                                             date: sea_orm::Set(now),
                                             temperature: sea_orm::Set(temp),
                                         };
-                                        let _ = entry.insert(&conn).await;
+                                        if let Err(err) = entry.insert(&conn).await {
+                                            eprintln!("[MQTT -> DB Error temp] {err}");
+                                        }
                                     }
-                                    if let Some(hum) = data.humidite {
+                                    if let Some(hum) = data_clone.humidite {
                                         let entry = humidity::ActiveModel {
                                             date: sea_orm::Set(now),
                                             humidity: sea_orm::Set(hum),
                                         };
-                                        let _ = entry.insert(&conn).await;
+                                        if let Err(err) = entry.insert(&conn).await {
+                                            eprintln!("[MQTT -> DB Error hum] {err}");
+                                        }
                                     }
-                                    if let Some(gaz) = data.gaz {
+                                    if let Some(gaz) = data_clone.gaz {
                                         let entry = gas::ActiveModel {
                                             date: sea_orm::Set(now),
                                             gas_level: sea_orm::Set(gaz),
                                         };
-                                        let _ = entry.insert(&conn).await;
+                                        if let Err(err) = entry.insert(&conn).await {
+                                            eprintln!("[MQTT -> DB Error gaz] {err}");
+                                        }
                                     }
+                                    println!(
+                                        "[MQTT -> DB PostgreSQL] Enregistré avec succès : temp={:?}°C, hum={:?}%, gaz={:?} ppm, mouvement={:?}",
+                                        data_clone.temperature, data_clone.humidite, data_clone.gaz, data_clone.mouvement
+                                    );
                                 });
                             }
                         }
