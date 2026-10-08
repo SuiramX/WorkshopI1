@@ -1,0 +1,364 @@
+:root {
+  --bg: #04070d;
+  --panel: rgba(10, 22, 38, 0.65);
+  --cyan: #00e5ff;
+  --green: #00ff9d;
+  --red: #ff2e63;
+  --amber: #ffb800;
+  --text: #d6e6f5;
+  --muted: #6f8aa6;
+}
+
+.dashboard {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 1rem 1.5rem;
+  color: var(--text);
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1rem;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(0, 229, 255, 0.12), transparent 45%),
+    radial-gradient(circle at 90% 100%, rgba(255, 46, 99, 0.08), transparent 40%),
+    linear-gradient(rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 40px 40px,
+    linear-gradient(90deg, rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 40px 40px,
+    var(--bg);
+}
+
+/* ---------- En-tête ---------- */
+.topbar {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.8rem;
+  border-bottom: 1px solid rgba(0, 229, 255, 0.3);
+  box-shadow: 0 4px 12px -8px var(--cyan);
+}
+
+.eyebrow {
+  margin: 0;
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+}
+
+.topbar h1 {
+  margin: 0.1rem 0;
+  font-family: "Orbitron", sans-serif;
+  font-size: 2.2rem;
+  letter-spacing: 0.15em;
+  color: var(--cyan);
+  text-shadow: 0 0 14px rgba(0, 229, 255, 0.7);
+}
+
+/* Alignement du visuel HUD dans la Topbar */
+.topbar-hud-wrapper {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  max-width: 600px;
+  margin: 0 auto;
+  pointer-events: none;
+}
+
+.topbar-hud-svg {
+  width: 100%;
+  height: auto;
+  max-height: 50px;
+  filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.4));
+}
+
+.subtitle {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.status {
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.85rem;
+  letter-spacing: 0.15em;
+  color: var(--green);
+  text-shadow: 0 0 8px var(--green);
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 10px var(--green);
+  animation: pulse 1.6s infinite;
+}
+
+/* ---------- Cartes ---------- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.card {
+  position: relative;
+  padding: 0.8rem 0.6rem;
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  box-shadow: 0 0 14px -6px var(--cyan), inset 0 0 18px -14px var(--cyan);
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  
+  /* Alignment et centrage global de la carte */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.card-head { 
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+  gap: 0.4rem; 
+  width: 100%;
+}
+
+.card-code {
+  padding: 2px 5px;
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--cyan);
+  border-radius: 2px;
+}
+
+.card h3 {
+  margin: 0;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.card-value {
+  margin: 0.4rem 0 0.2rem;
+  font-family: "Orbitron", sans-serif;
+  font-size: 1.8rem; /* Valeur agrandie */
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 0 12px rgba(0, 229, 255, 0.7);
+  
+  /* Alignement du chiffre et de son unité */
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+}
+
+.card-value small {
+  margin-left: 0.3rem;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.card-state {
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  color: var(--green);
+}
+
+/* État alerte */
+.card.alert {
+  border-color: var(--red);
+  box-shadow: 0 0 18px -4px var(--red), inset 0 0 18px -12px var(--red);
+  animation: alarm 1.2s infinite;
+}
+
+.card.alert .card-code { background: var(--red); }
+.card.alert .card-value { text-shadow: 0 0 12px var(--red); }
+.card.alert .card-state { color: var(--red); }
+
+/* ---------- Layout Grille (Webcam + Graphiques) ---------- */
+.main-media-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  align-items: stretch;
+}
+
+.media-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.media-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  justify-content: space-between;
+}
+
+/* ---------- Webcam Feed ---------- */
+.webcam-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.webcam-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  background: #000;
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  box-shadow: 0 0 20px -8px var(--cyan);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.webcam-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.webcam-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.webcam-tag, .webcam-fps {
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.75rem;
+  padding: 3px 6px;
+  background: rgba(4, 7, 13, 0.75);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  color: var(--cyan);
+  backdrop-filter: blur(4px);
+}
+
+.webcam-error {
+  padding: 2rem 1rem;
+  text-align: center;
+  font-family: "Share Tech Mono", monospace;
+}
+
+/* ---------- Graphiques ---------- */
+.chart-panel {
+  min-width: 0;
+  flex: 1;
+  padding: 0.6rem 0.8rem;
+  background: var(--panel);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 0 14px -8px var(--cyan);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.chart-panel h2 {
+  margin: 0 0 0.3rem;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+
+.recharts-legend-item-text {
+  font-family: "Rajdhani", sans-serif;
+  letter-spacing: 0.05em;
+  font-size: 0.8rem;
+}
+
+.chart-panel .recharts-responsive-container {
+  min-height: 120px !important;
+  max-height: 100% !important;
+}
+
+/* ---------- Journal des alertes ---------- */
+.log {
+  padding: 0.8rem 1rem;
+  background: var(--panel);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  backdrop-filter: blur(8px);
+}
+
+.log h2 {
+  margin: 0 0 0.6rem;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+
+.log ul { 
+  list-style: none; 
+  margin: 0; 
+  padding: 0; 
+  max-height: 200px; 
+  overflow-y: auto; 
+}
+
+.log-item {
+  padding: 0.3rem 0.6rem;
+  margin-bottom: 0.3rem;
+  font-family: "Share Tech Mono", monospace;
+  font-size: 0.8rem;
+  border-left: 3px solid;
+  background: rgba(255, 255, 255, 0.03);
+  animation: slide-in 0.3s ease-out;
+}
+
+.log-item strong { margin-right: 0.6rem; color: var(--muted); }
+.log-item.critique { border-color: var(--red); color: #ffb3c4; }
+.log-item.alerte { border-color: var(--amber); color: #ffe19a; }
+
+/* ---------- Animations & Responsive ---------- */
+@keyframes pulse {
+  50% { opacity: 0.35; }
+}
+
+@keyframes alarm {
+  50% { box-shadow: 0 0 28px 0 var(--red), inset 0 0 20px -8px var(--red); }
+}
+
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(-12px); }
+}
+
+@media (max-width: 1024px) {
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .main-media-grid {
+    grid-template-columns: 1fr;
+  }
+}

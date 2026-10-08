@@ -1,7 +1,7 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 use chrono;
 use dotenvy::dotenv;
-use std::{env, fs::File, io::BufReader, process::Command, time::Duration};
+use std::{env, fs, io::{BufReader, Cursor}, process::Command, time::Duration};
 
 // DB Interactions
 use sea_orm::{
@@ -126,17 +126,37 @@ fn tls_config() -> rustls::ServerConfig {
         .install_default()
         .unwrap();
 
-    let mut certs_file = BufReader::new(File::open("cert.pem").unwrap());
-    let mut key_file = BufReader::new(File::open("key.pem").unwrap());
+    // Load PEM certificate and private key directly from env (TLS_CERT / TLS_KEY) or fallback to file paths
+    let (cert_bytes, key_bytes) = if let (Ok(cert_pem), Ok(key_pem)) = (
+        env::var("TLS_CERT").or_else(|_| env::var("TLS_CERT_PEM")),
+        env::var("TLS_KEY").or_else(|_| env::var("TLS_KEY_PEM")),
+    ) {
+        (
+            cert_pem.replace("\\n", "\n").into_bytes(),
+            key_pem.replace("\\n", "\n").into_bytes(),
+        )
+    } else {
+        let cert_path = env::var("TLS_CERT_PATH").unwrap_or_else(|_| "cert.pem".to_string());
+        let key_path = env::var("TLS_KEY_PATH").unwrap_or_else(|_| "key.pem".to_string());
+        (
+            fs::read(&cert_path)
+                .unwrap_or_else(|err| panic!("Failed to read certificate at '{}': {}", cert_path, err)),
+            fs::read(&key_path)
+                .unwrap_or_else(|err| panic!("Failed to read private key at '{}': {}", key_path, err)),
+        )
+    };
+
+    let mut certs_reader = Cursor::new(cert_bytes);
+    let mut key_reader = Cursor::new(key_bytes);
 
     // load TLS certs and key
-    let tls_certs = rustls_pemfile::certs(&mut certs_file)
+    let tls_certs = rustls_pemfile::certs(&mut certs_reader)
         .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    let tls_key = rustls_pemfile::pkcs8_private_keys(&mut key_file)
+        .expect("Failed to parse TLS certificate from PEM");
+    let tls_key = rustls_pemfile::pkcs8_private_keys(&mut key_reader)
         .next()
-        .unwrap()
-        .unwrap();
+        .expect("No PKCS8 private key found in PEM")
+        .expect("Failed to parse PKCS8 private key");
 
     // set up TLS config options
     let tls_config: rustls::ServerConfig = rustls::ServerConfig::builder()
@@ -192,8 +212,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_all_sensors)
     })
     .keep_alive(Duration::from_secs(75))
-    // .bind_rustls_0_23(("127.0.0.1", port.parse().unwrap()), tls_config)?
-    .bind_rustls_0_23(("0.0.0.0", port.parse().unwrap()), tls_config)? // 0.0.0.0 = docker bind
+    .bind_rustls_0_23((host.as_str(), port.parse().unwrap()), tls_config)?
     .run()
     .await
 }
