@@ -235,7 +235,7 @@ async fn actix_sentinel(state: web::Data<AppState>) -> impl Responder {
 }
 
 #[get("/date")]
-async fn get_date(state: web::Data<AppState>) -> impl Responder {
+async fn get_date(_state: web::Data<AppState>) -> impl Responder {
     let current_date = chrono::Utc::now().naive_utc().date();
     HttpResponse::Ok().body(format!("current date : {}", current_date.to_string()))
 }
@@ -253,7 +253,7 @@ async fn get_latest_temp(conn: &DatabaseConnection) -> Option<temperature::Model
     let temperature: Option<temperature::Model> = match latest_temp {
         Ok(Some(entry)) => Some(entry),
         Ok(None) => None,
-        Err(err) => None,
+        Err(_err) => None,
     };
 
     return temperature;
@@ -267,9 +267,8 @@ fn get_mqtt_host() -> String {
 /// Store to DB
 #[get("/temperature/sensor")]
 async fn sensor_temperature(state: web::Data<AppState>) -> impl Responder {
-    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "temp"
-    let output = Command::new("/usr/bin/mosquitto_pub")
     let mqtt_host = get_mqtt_host();
+    let output = Command::new("mosquitto_pub")
         .arg("-h")
         .arg(&mqtt_host)
         .arg("-t")
@@ -396,7 +395,7 @@ async fn get_latest_humidity(conn: &DatabaseConnection) -> Option<humidity::Mode
     let humidity: Option<humidity::Model> = match latest_temp {
         Ok(Some(entry)) => Some(entry),
         Ok(None) => None,
-        Err(err) => None,
+        Err(_err) => None,
     };
 
     return humidity;
@@ -406,9 +405,8 @@ async fn get_latest_humidity(conn: &DatabaseConnection) -> Option<humidity::Mode
 /// Store in DB
 #[get("/humidity/sensor")]
 async fn sensor_humidity(state: web::Data<AppState>) -> impl Responder {
-    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
-    let output = Command::new("/usr/bin/mosquitto_pub")
     let mqtt_host = get_mqtt_host();
+    let output = Command::new("mosquitto_pub")
         .arg("-h")
         .arg(&mqtt_host)
         .arg("-t")
@@ -535,7 +533,7 @@ async fn get_latest_gas_level(conn: &DatabaseConnection) -> Option<gas::Model> {
     let gas: Option<gas::Model> = match latest_temp {
         Ok(Some(entry)) => Some(entry),
         Ok(None) => None,
-        Err(err) => None,
+        Err(_err) => None,
     };
 
     return gas;
@@ -545,9 +543,8 @@ async fn get_latest_gas_level(conn: &DatabaseConnection) -> Option<gas::Model> {
 /// Store in DB
 #[get("/gas/sensor")]
 async fn sensor_gas(state: web::Data<AppState>) -> impl Responder {
-    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
-    let output = Command::new("/usr/bin/mosquitto_pub")
     let mqtt_host = get_mqtt_host();
+    let output = Command::new("mosquitto_pub")
         .arg("-h")
         .arg(&mqtt_host)
         .arg("-t")
@@ -662,10 +659,9 @@ async fn read_gas_range(
 
 /// Get Presence Sensor Value
 #[get("/presence")]
-async fn sensor_presence(state: web::Data<AppState>) -> impl Responder {
-    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
-    let output = Command::new("/usr/bin/mosquitto_pub")
+async fn sensor_presence(_state: web::Data<AppState>) -> impl Responder {
     let mqtt_host = get_mqtt_host();
+    let output = Command::new("mosquitto_pub")
         .arg("-h")
         .arg(&mqtt_host)
         .arg("-t")
@@ -695,10 +691,9 @@ async fn sensor_presence(state: web::Data<AppState>) -> impl Responder {
 
 /// Get all sensors value
 #[get("/status/sensors")]
-async fn get_all_sensors(state: web::Data<AppState>) -> impl Responder {
-    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
-    let output = Command::new("/usr/bin/mosquitto_pub")
+async fn get_all_sensors(_state: web::Data<AppState>) -> impl Responder {
     let mqtt_host = get_mqtt_host();
+    let output = Command::new("mosquitto_pub")
         .arg("-h")
         .arg(&mqtt_host)
         .arg("-t")
