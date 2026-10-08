@@ -6,14 +6,15 @@ import HistoryChart from "./components/HistoryChart";
 import WebcamFeed from "./components/WebcamFeed";
 import TopbarHud from "./components/TopbarHud";
 
-const API_STATUS_URL = import.meta.env.VITE_API_STATUS_URL || "https://192.168.1.9:8080/status";
+// URL de base de l'API Rust — configurable via variable d'environnement Vite
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "https://192.168.1.9:8080").replace(/\/$/, "");
 
-// Structure initiale des données capteurs
+// Structure initiale des données capteurs (affiché avant le premier appel API)
 const initialData = {
-  temperature: 25.0,
-  humidite: 50.0,
-  gaz: 120.0,
-  fumee: 35.0,
+  temperature: null,
+  humidite: null,
+  gaz: null,
+  fumee: null,
   intrusion: false,
   cyber: 0,
 };
@@ -27,101 +28,44 @@ function parseStatus(payload) {
   let intrusion = null;
   let cyber = null;
 
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      if (!item || typeof item !== "object") continue;
+  const items = Array.isArray(payload) ? payload : [payload];
 
-      if (item.temperature_level !== undefined && item.temperature_level !== null) {
-        temperature = Number(item.temperature_level);
-      } else if (item.temperature !== undefined && item.temperature !== null) {
-        temperature = Number(item.temperature);
-      } else if (item.temp !== undefined && item.temp !== null) {
-        temperature = Number(item.temp);
-      }
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
 
-      if (item.humidity_level !== undefined && item.humidity_level !== null) {
-        humidity = Number(item.humidity_level);
-      } else if (item.humidity !== undefined && item.humidity !== null) {
-        humidity = Number(item.humidity);
-      } else if (item.humidite !== undefined && item.humidite !== null) {
-        humidity = Number(item.humidite);
-      }
+    if (item.temperature_level != null) temperature = Number(item.temperature_level);
+    else if (item.temperature != null) temperature = Number(item.temperature);
+    else if (item.temp != null) temperature = Number(item.temp);
 
-      if (item.gas_level !== undefined && item.gas_level !== null) {
-        gas = Number(item.gas_level);
-      } else if (item.gas !== undefined && item.gas !== null) {
-        gas = Number(item.gas);
-      } else if (item.gaz !== undefined && item.gaz !== null) {
-        gas = Number(item.gaz);
-      }
+    if (item.humidity_level != null) humidity = Number(item.humidity_level);
+    else if (item.humidity != null) humidity = Number(item.humidity);
+    else if (item.humidite != null) humidity = Number(item.humidite);
 
-      if (item.smoke_level !== undefined && item.smoke_level !== null) {
-        smoke = Number(item.smoke_level);
-      } else if (item.fumee !== undefined && item.fumee !== null) {
-        smoke = Number(item.fumee);
-      } else if (item.smoke !== undefined && item.smoke !== null) {
-        smoke = Number(item.smoke);
-      }
+    if (item.gas_level != null) gas = Number(item.gas_level);
+    else if (item.gas != null) gas = Number(item.gas);
+    else if (item.gaz != null) gas = Number(item.gaz);
 
-      if (item.presence !== undefined && item.presence !== null) {
-        intrusion = Boolean(item.presence);
-      } else if (item.mouvement !== undefined && item.mouvement !== null) {
-        intrusion = Boolean(item.mouvement);
-      } else if (item.intrusion !== undefined && item.intrusion !== null) {
-        intrusion = Boolean(item.intrusion);
-      }
+    if (item.smoke_level != null) smoke = Number(item.smoke_level);
+    else if (item.fumee != null) smoke = Number(item.fumee);
+    else if (item.smoke != null) smoke = Number(item.smoke);
 
-      if (item.cyber !== undefined && item.cyber !== null) {
-        cyber = Number(item.cyber);
-      }
-    }
-  } else if (payload && typeof payload === "object") {
-    if (payload.temperature_level !== undefined && payload.temperature_level !== null) {
-      temperature = Number(payload.temperature_level);
-    } else if (payload.temperature !== undefined && payload.temperature !== null) {
-      temperature = Number(payload.temperature);
-    } else if (payload.temp !== undefined && payload.temp !== null) {
-      temperature = Number(payload.temp);
-    }
+    if (item.presence != null) intrusion = Boolean(item.presence);
+    else if (item.mouvement != null) intrusion = Boolean(item.mouvement);
+    else if (item.intrusion != null) intrusion = Boolean(item.intrusion);
 
-    if (payload.humidity_level !== undefined && payload.humidity_level !== null) {
-      humidity = Number(payload.humidity_level);
-    } else if (payload.humidity !== undefined && payload.humidity !== null) {
-      humidity = Number(payload.humidity);
-    } else if (payload.humidite !== undefined && payload.humidite !== null) {
-      humidity = Number(payload.humidite);
-    }
-
-    if (payload.gas_level !== undefined && payload.gas_level !== null) {
-      gas = Number(payload.gas_level);
-    } else if (payload.gas !== undefined && payload.gas !== null) {
-      gas = Number(payload.gas);
-    } else if (payload.gaz !== undefined && payload.gaz !== null) {
-      gas = Number(payload.gaz);
-    }
-
-    if (payload.smoke_level !== undefined && payload.smoke_level !== null) {
-      smoke = Number(payload.smoke_level);
-    } else if (payload.fumee !== undefined && payload.fumee !== null) {
-      smoke = Number(payload.fumee);
-    } else if (payload.smoke !== undefined && payload.smoke !== null) {
-      smoke = Number(payload.smoke);
-    }
-
-    if (payload.presence !== undefined && payload.presence !== null) {
-      intrusion = Boolean(payload.presence);
-    } else if (payload.mouvement !== undefined && payload.mouvement !== null) {
-      intrusion = Boolean(payload.mouvement);
-    } else if (payload.intrusion !== undefined && payload.intrusion !== null) {
-      intrusion = Boolean(payload.intrusion);
-    }
-
-    if (payload.cyber !== undefined && payload.cyber !== null) {
-      cyber = Number(payload.cyber);
-    }
+    if (item.cyber != null) cyber = Number(item.cyber);
   }
 
   return { temperature, humidity, gas, smoke, intrusion, cyber };
+}
+
+// Déclenche une lecture capteur sans bloquer (fire & forget avec timeout)
+function triggerSensor(path) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  return fetch(`${API_BASE}${path}`, { signal: ctrl.signal })
+    .catch(() => {}) // erreur ignorée volontairement
+    .finally(() => clearTimeout(timer));
 }
 
 export default function App() {
@@ -139,22 +83,29 @@ export default function App() {
     return () => clearInterval(clockId);
   }, []);
 
-  // Récupération des données réelles depuis l'API Rust (toutes les 10 secondes)
+  // Cycle principal : ping capteurs → attendre → récupérer /status
   useEffect(() => {
     let isMounted = true;
 
     const fetchSensorData = async () => {
+      // ── Étape 1 : déclencher les 3 capteurs en parallèle pour peupler la BDD
+      // Ces appels publient sur MQTT (esp8266/cmd) et stockent la réponse en base.
+      // On les lance en parallèle et on attend qu'ils se terminent (ou timeout 8s).
+      await Promise.allSettled([
+        triggerSensor("/temperature/sensor"),
+        triggerSensor("/humidity/sensor"),
+        triggerSensor("/gas/sensor"),
+      ]);
+
+      if (!isMounted) return;
+
+      // ── Étape 2 : lire le dernier état depuis la BDD via /status
       try {
-        const response = await fetch(API_STATUS_URL, {
-          method: "GET",
-          headers: {
-            Accept: "application/json",
-          },
+        const response = await fetch(`${API_BASE}/status`, {
+          headers: { Accept: "application/json" },
         });
 
-        if (!response.ok) {
-          throw new Error(`Statut HTTP: ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const json = await response.json();
         if (!isMounted) return;
@@ -163,60 +114,50 @@ export default function App() {
         const currentTime = new Date().toLocaleTimeString("fr-FR");
 
         setData((prev) => {
-          const nextTemp = parsed.temperature !== null ? parsed.temperature : prev.temperature;
-          const nextHum = parsed.humidity !== null ? parsed.humidity : prev.humidite;
-          const nextGas = parsed.gas !== null ? parsed.gas : prev.gaz;
-          const nextSmoke = parsed.smoke !== null ? parsed.smoke : (parsed.gas !== null ? Math.round(parsed.gas * 0.3) : prev.fumee);
+          const nextTemp     = parsed.temperature !== null ? parsed.temperature : prev.temperature;
+          const nextHum      = parsed.humidity    !== null ? parsed.humidity    : prev.humidite;
+          const nextGas      = parsed.gas         !== null ? parsed.gas         : prev.gaz;
+          const nextSmoke    = parsed.smoke       !== null ? parsed.smoke
+                             : parsed.gas         !== null ? Math.round(parsed.gas * 0.3)
+                             : prev.fumee;
           const nextIntrusion = parsed.intrusion !== null ? parsed.intrusion : prev.intrusion;
-          const nextCyber = parsed.cyber !== null ? parsed.cyber : prev.cyber;
+          const nextCyber     = parsed.cyber      !== null ? parsed.cyber     : prev.cyber;
 
           const nextData = {
             temperature: nextTemp,
-            humidite: nextHum,
-            gaz: nextGas,
-            fumee: nextSmoke,
-            intrusion: nextIntrusion,
-            cyber: nextCyber,
+            humidite:    nextHum,
+            gaz:         nextGas,
+            fumee:       nextSmoke,
+            intrusion:   nextIntrusion,
+            cyber:       nextCyber,
           };
 
-          // Mise à jour de l'historique (conservation des 30 dernières mesures)
-          setHistory((prevHist) =>
+          // Historique : 30 dernières mesures pour les graphiques
+          setHistory((prev) =>
             [
-              ...prevHist,
+              ...prev,
               {
-                time: currentTime,
-                temperature: nextTemp !== null ? +Number(nextTemp).toFixed(1) : 0,
-                humidite: nextHum !== null ? +Number(nextHum).toFixed(1) : 0,
-                gaz: nextGas !== null ? Math.round(nextGas) : 0,
-                fumee: nextSmoke !== null ? Math.round(nextSmoke) : 0,
+                time:        currentTime,
+                temperature: nextTemp  != null ? +Number(nextTemp).toFixed(1)  : null,
+                humidite:    nextHum   != null ? +Number(nextHum).toFixed(1)   : null,
+                gaz:         nextGas   != null ? Math.round(nextGas)           : null,
+                fumee:       nextSmoke != null ? Math.round(nextSmoke)         : null,
               },
             ].slice(-30)
           );
 
-          // Détection des alertes basées sur les données réelles
+          // Détection des seuils d'alerte
           const found = [];
-          if (nextTemp !== null && nextTemp > 35) {
-            found.push({ level: "critique", message: `Surchauffe thermique (${Number(nextTemp).toFixed(1)}°C)` });
-          }
-          if (nextGas !== null && nextGas > 400) {
-            found.push({ level: "critique", message: `Fuite de gaz combustible (${Math.round(nextGas)} ppm)` });
-          }
-          if (nextSmoke !== null && nextSmoke > 200) {
-            found.push({ level: "critique", message: `Fumées denses détectées (${Math.round(nextSmoke)} ppm)` });
-          }
-          if (nextHum !== null && nextHum > 80) {
-            found.push({ level: "alerte", message: `Humidité excessive (${Number(nextHum).toFixed(1)}%)` });
-          }
-          if (nextIntrusion) {
-            found.push({ level: "alerte", message: "Intrusion physique détectée (capteur PIR)" });
-          }
-          if (nextCyber !== null && nextCyber > 5) {
-            found.push({ level: "alerte", message: "Tentatives de connexion suspectes" });
-          }
+          if (nextTemp  != null && nextTemp  > 35)  found.push({ level: "critique", message: `Surchauffe thermique (${Number(nextTemp).toFixed(1)}°C)` });
+          if (nextGas   != null && nextGas   > 400) found.push({ level: "critique", message: `Fuite de gaz combustible (${Math.round(nextGas)} ppm)` });
+          if (nextSmoke != null && nextSmoke > 200) found.push({ level: "critique", message: `Fumées denses détectées (${Math.round(nextSmoke)} ppm)` });
+          if (nextHum   != null && nextHum   > 80)  found.push({ level: "alerte",   message: `Humidité excessive (${Number(nextHum).toFixed(1)}%)` });
+          if (nextIntrusion)                         found.push({ level: "alerte",   message: "Intrusion physique détectée (capteur PIR)" });
+          if (nextCyber != null && nextCyber > 5)   found.push({ level: "alerte",   message: "Tentatives de connexion suspectes" });
 
           if (found.length > 0) {
             const withInfo = found.map((a) => ({ ...a, time: currentTime, id: crypto.randomUUID() }));
-            setAlerts((prevAlerts) => [...withInfo, ...prevAlerts].slice(0, 20));
+            setAlerts((prev) => [...withInfo, ...prev].slice(0, 20));
           }
 
           return nextData;
@@ -224,14 +165,12 @@ export default function App() {
 
         setApiStatus("connected");
       } catch (err) {
-        console.warn("Erreur de communication avec l'API Rust Sentinel (/status):", err.message);
-        if (isMounted) {
-          setApiStatus("error");
-        }
+        console.warn("[Sentinel] Erreur /status :", err.message);
+        if (isMounted) setApiStatus("error");
       }
     };
 
-    // Premier appel au chargement
+    // Premier appel immédiat au chargement de la page
     fetchSensorData();
 
     // Répétition toutes les 10 secondes
@@ -245,9 +184,8 @@ export default function App() {
 
   // Calcul du niveau de menace global
   const criticalCount = alerts.slice(0, 5).filter((a) => a.level === "critique").length;
-  const threatLevel = criticalCount >= 2 ? "CRITIQUE" : criticalCount === 1 ? "ÉLEVÉ" : "NOMINAL";
-  const threatColor =
-    threatLevel === "CRITIQUE" ? "var(--red)" : threatLevel === "ÉLEVÉ" ? "var(--amber)" : "var(--green)";
+  const threatLevel   = criticalCount >= 2 ? "CRITIQUE" : criticalCount === 1 ? "ÉLEVÉ" : "NOMINAL";
+  const threatColor   = threatLevel === "CRITIQUE" ? "var(--red)" : threatLevel === "ÉLEVÉ" ? "var(--amber)" : "var(--green)";
 
   return (
     <div className="dashboard">
@@ -258,7 +196,6 @@ export default function App() {
           <p className="subtitle">Centre de commandement tactique</p>
         </div>
 
-        {/* Habillage graphique central */}
         <TopbarHud />
 
         <div className="topbar-right" style={{ textAlign: "right" }}>
@@ -268,7 +205,12 @@ export default function App() {
             MENACE : {threatLevel}
           </span>
           <p className="eyebrow" style={{ marginTop: "0.25rem", fontSize: "0.7rem" }}>
-            API RUST : {apiStatus === "connected" ? "EN LIGNE (10s)" : apiStatus === "error" ? "CONNEXION PERDUE" : "SYNCHRONISATION..."}
+            API :{" "}
+            {apiStatus === "connected"
+              ? "EN LIGNE // POLL 10s"
+              : apiStatus === "error"
+              ? "⚠ CONNEXION PERDUE"
+              : "SYNCHRONISATION..."}
           </p>
         </div>
       </header>
@@ -277,30 +219,30 @@ export default function App() {
         <SensorCard
           code="DHT11"
           name="Température"
-          value={data.temperature !== null ? Number(data.temperature).toFixed(1) : "--"}
+          value={data.temperature != null ? Number(data.temperature).toFixed(1) : "--"}
           unit="°C"
-          alert={data.temperature !== null && data.temperature > 35}
+          alert={data.temperature != null && data.temperature > 35}
         />
         <SensorCard
           code="DHT11"
           name="Humidité"
-          value={data.humidite !== null ? Number(data.humidite).toFixed(1) : "--"}
+          value={data.humidite != null ? Number(data.humidite).toFixed(1) : "--"}
           unit="%"
-          alert={data.humidite !== null && data.humidite > 80}
+          alert={data.humidite != null && data.humidite > 80}
         />
         <SensorCard
           code="MQ-2"
           name="Gaz combustible"
-          value={data.gaz !== null ? Math.round(data.gaz) : "--"}
+          value={data.gaz != null ? Math.round(data.gaz) : "--"}
           unit="ppm"
-          alert={data.gaz !== null && data.gaz > 400}
+          alert={data.gaz != null && data.gaz > 400}
         />
         <SensorCard
           code="MQ-2"
           name="Fumées"
-          value={data.fumee !== null ? Math.round(data.fumee) : "--"}
+          value={data.fumee != null ? Math.round(data.fumee) : "--"}
           unit="ppm"
-          alert={data.fumee !== null && data.fumee > 200}
+          alert={data.fumee != null && data.fumee > 200}
         />
         <SensorCard
           code="HC-SR501"
@@ -318,7 +260,6 @@ export default function App() {
         />
       </section>
 
-      {/* DISPOSITION 2 COLONNES : WEBCAM (GAUCHE) / GRAPHIQUES (DROITE) */}
       <section className="main-media-grid">
         <div className="media-left">
           <WebcamFeed />
@@ -330,14 +271,14 @@ export default function App() {
             data={history}
             lines={[
               { key: "temperature", label: "Température (°C)", color: "#ff9f1c" },
-              { key: "humidite", label: "Humidité (%)", color: "#00e5ff" },
+              { key: "humidite",    label: "Humidité (%)",      color: "#00e5ff" },
             ]}
           />
           <HistoryChart
             title="Gaz / Fumées"
             data={history}
             lines={[
-              { key: "gaz", label: "Gaz (ppm)", color: "#ff2e63" },
+              { key: "gaz",   label: "Gaz (ppm)",    color: "#ff2e63" },
               { key: "fumee", label: "Fumées (ppm)", color: "#a855f7" },
             ]}
           />
