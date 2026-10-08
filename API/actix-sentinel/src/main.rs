@@ -263,8 +263,8 @@ async fn get_latest_temp(conn: &DatabaseConnection) -> Option<temperature::Model
 /// Store to DB
 #[get("/temperature/sensor")]
 async fn sensor_temperature(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "temp"
-    let output = Command::new("mosquitto_pub")
+    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "temp"
+    let output = Command::new("/usr/bin/mosquitto_pub")
         .arg("-h")
         .arg("192.168.1.9")
         .arg("-t")
@@ -401,8 +401,8 @@ async fn get_latest_humidity(conn: &DatabaseConnection) -> Option<humidity::Mode
 /// Store in DB
 #[get("/humidity/sensor")]
 async fn sensor_humidity(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
-    let output = Command::new("mosquitto_pub")
+    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
+    let output = Command::new("/usr/bin/mosquitto_pub")
         .arg("-h")
         .arg("192.168.1.9")
         .arg("-t")
@@ -539,8 +539,8 @@ async fn get_latest_gas_level(conn: &DatabaseConnection) -> Option<gas::Model> {
 /// Store in DB
 #[get("/gas/sensor")]
 async fn sensor_gas(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
-    let output = Command::new("mosquitto_pub")
+    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
+    let output = Command::new("/usr/bin/mosquitto_pub")
         .arg("-h")
         .arg("192.168.1.9")
         .arg("-t")
@@ -656,8 +656,8 @@ async fn read_gas_range(
 /// Get Presence Sensor Value
 #[get("/presence")]
 async fn sensor_presence(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
-    let output = Command::new("mosquitto_pub")
+    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
+    let output = Command::new("/usr/bin/mosquitto_pub")
         .arg("-h")
         .arg("192.168.1.9")
         .arg("-t")
@@ -688,8 +688,8 @@ async fn sensor_presence(state: web::Data<AppState>) -> impl Responder {
 /// Get all sensors value
 #[get("/status/sensors")]
 async fn get_all_sensors(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
-    let output = Command::new("mosquitto_pub")
+    // /usr/bin/mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
+    let output = Command::new("/usr/bin/mosquitto_pub")
         .arg("-h")
         .arg("192.168.1.9")
         .arg("-t")
