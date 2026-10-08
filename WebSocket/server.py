@@ -2,6 +2,8 @@ import asyncio
 import glob
 import logging
 import os
+import threading
+import time
 import urllib.parse
 import cv2
 import websockets
@@ -15,12 +17,46 @@ logger = logging.getLogger("VideoStreamer")
 PORT = int(os.environ.get("PORT", 8765))
 CAMERA_NAME = os.environ.get("CAMERA_NAME", "C920")
 DEVICE_CONFIG = os.environ.get("DEVICE", "auto")
-FPS = int(os.environ.get("FPS", 30))
+FPS = int(os.environ.get("FPS", 25))
+JPEG_QUALITY = int(os.environ.get("JPEG_QUALITY", 65))
 WS_AUTH_TOKEN = os.environ.get("WS_AUTH_TOKEN", "")
 MAX_CLIENTS = int(os.environ.get("MAX_CLIENTS", 5))
 
+
+class FrameBuffer:
+    """Thread-safe frame buffer holding the latest captured camera frame."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.frame_data = None
+        self.frame_id = 0
+        self.active_listeners = 0
+
+    def set_frame(self, data: bytes):
+        with self.lock:
+            self.frame_data = data
+            self.frame_id += 1
+
+    def get_latest(self):
+        with self.lock:
+            return self.frame_data, self.frame_id
+
+    def add_listener(self):
+        with self.lock:
+            self.active_listeners += 1
+            return self.active_listeners
+
+    def remove_listener(self):
+        with self.lock:
+            self.active_listeners = max(0, self.active_listeners - 1)
+            return self.active_listeners
+
+    def listener_count(self):
+        with self.lock:
+            return self.active_listeners
+
+
+frame_buffer = FrameBuffer()
 connected_clients = set()
-latest_frame_jpeg = None
 clients_lock = asyncio.Lock()
 
 
@@ -72,7 +108,6 @@ def find_camera_device(target_name="C920"):
                     if target_name.lower() in dev_name.lower():
                         vname = os.path.basename(vdir)
                         dev_path = f"/dev/{vname}"
-                        # Test if this specific node can produce video frames
                         test_cap = cv2.VideoCapture(dev_path, cv2.CAP_V4L2)
                         if test_cap.isOpened():
                             ret, _ = test_cap.read()
@@ -99,17 +134,25 @@ def find_camera_device(target_name="C920"):
     return None
 
 
-async def capture_loop():
-    """Captures real camera frames and broadcasts JPEG bytes to connected WebSocket clients."""
-    global latest_frame_jpeg
-
+def camera_capture_worker():
+    """
+    Dedicated worker thread for camera capture.
+    Prevents blocking the asyncio event loop and optimizes CPU usage.
+    """
+    encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY]
     cap = None
     active_device = None
-    encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), 75]
+
+    logger.info("Camera capture worker thread started.")
 
     while True:
         try:
-            # 1. Check/re-establish camera connection
+            # When no clients are connected, sleep to save Raspberry Pi CPU & power
+            if frame_buffer.listener_count() == 0:
+                time.sleep(0.2)
+                continue
+
+            # Check / re-establish camera connection
             if cap is None or not cap.isOpened():
                 if DEVICE_CONFIG and DEVICE_CONFIG != "auto":
                     target = int(DEVICE_CONFIG) if DEVICE_CONFIG.isdigit() else DEVICE_CONFIG
@@ -118,7 +161,7 @@ async def capture_loop():
 
                 if target is None:
                     logger.warning(f"Webcam '{CAMERA_NAME}' not found, retrying in 2 seconds...")
-                    await asyncio.sleep(2)
+                    time.sleep(2)
                     continue
 
                 logger.info(f"Attempting to open camera on {target}...")
@@ -129,58 +172,45 @@ async def capture_loop():
                 if not cap.isOpened():
                     logger.warning(f"Failed to open {target}, retrying in 2 seconds...")
                     cap = None
-                    await asyncio.sleep(2)
+                    time.sleep(2)
                     continue
 
-                # Optimize stream parameters for Logitech C920
+                # Optimize stream parameters for smooth streaming & low latency
                 cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 cap.set(cv2.CAP_PROP_FPS, FPS)
-                active_device = target
-                logger.info(f"Connected to camera on {active_device} at {FPS} FPS")
+                # Keep internal buffer to 1 frame to prevent queueing lag
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-            # 2. Read frame
+                active_device = target
+                logger.info(f"Connected to camera on {active_device} (target {FPS} FPS, JPEG quality {JPEG_QUALITY})")
+
+            # Read frame (blocking hardware read in dedicated thread)
             ret, frame = cap.read()
             if not ret or frame is None:
                 logger.warning(f"Failed to read frame from {active_device}, disconnecting to re-scan...")
                 cap.release()
                 cap = None
                 active_device = None
-                await asyncio.sleep(1)
+                time.sleep(1)
                 continue
 
-            # 3. Compress frame as JPEG
+            # Encode to JPEG
             success, buffer = cv2.imencode(".jpg", frame, encode_params)
-            if not success:
-                await asyncio.sleep(0.01)
-                continue
-
-            jpeg_bytes = buffer.tobytes()
-            latest_frame_jpeg = jpeg_bytes
-
-            # 4. Broadcast to clients
-            async with clients_lock:
-                clients = list(connected_clients)
-
-            if clients:
-                tasks = [client.send(jpeg_bytes) for client in clients]
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-            await asyncio.sleep(1.0 / FPS)
+            if success:
+                frame_buffer.set_frame(buffer.tobytes())
 
         except Exception as err:
-            logger.error(f"Error in capture loop: {err}")
+            logger.error(f"Error in camera capture thread: {err}")
             if cap is not None:
                 try:
                     cap.release()
                 except Exception:
                     pass
                 cap = None
-            await asyncio.sleep(1)
-
-    if cap:
-        cap.release()
+                active_device = None
+            time.sleep(1)
 
 
 async def ws_handler(websocket, *args, **kwargs):
@@ -209,22 +239,31 @@ async def ws_handler(websocket, *args, **kwargs):
             return
         connected_clients.add(websocket)
 
-    logger.info(f"Client authenticated and connected: {client_ip} (Active clients: {len(connected_clients)})")
+    active_count = frame_buffer.add_listener()
+    logger.info(f"Client authenticated and connected: {client_ip} (Active clients: {active_count})")
+
+    last_sent_id = -1
+    frame_interval = 1.0 / max(1, FPS)
 
     try:
-        if latest_frame_jpeg is not None:
-            await websocket.send(latest_frame_jpeg)
+        # Stream loop for this client
+        while True:
+            frame_data, frame_id = frame_buffer.get_latest()
+            if frame_data is not None and frame_id != last_sent_id:
+                last_sent_id = frame_id
+                await websocket.send(frame_data)
 
-        async for _ in websocket:
-            pass
+            await asyncio.sleep(frame_interval)
+
     except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedOK, websockets.exceptions.ConnectionClosedError):
         pass
     except Exception as err:
         logger.warning(f"WebSocket client exception: {err}")
     finally:
+        active_count = frame_buffer.remove_listener()
         async with clients_lock:
             connected_clients.discard(websocket)
-        logger.info(f"Client disconnected: {client_ip} (Active clients: {len(connected_clients)})")
+        logger.info(f"Client disconnected: {client_ip} (Active clients: {active_count})")
 
 
 async def main():
@@ -233,11 +272,13 @@ async def main():
         logger.info("Security: Token authentication is ENABLED.")
     else:
         logger.warning("Security: WS_AUTH_TOKEN is not configured! All connections will be allowed.")
-    asyncio.create_task(capture_loop())
 
-    async with websockets.serve(ws_handler, "0.0.0.0", PORT, max_size=10 * 1024 * 1024):
+    # Start camera worker in background thread
+    worker_thread = threading.Thread(target=camera_capture_worker, daemon=True, name="CameraCaptureWorker")
+    worker_thread.start()
+
+    async with websockets.serve(ws_handler, "0.0.0.0", PORT, max_size=10 * 1024 * 1024, ping_interval=20, ping_timeout=20):
         await asyncio.Future()
-
 
 
 if __name__ == "__main__":
