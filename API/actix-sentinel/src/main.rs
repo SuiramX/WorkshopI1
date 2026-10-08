@@ -4,8 +4,12 @@ use chrono;
 use dotenvy::dotenv;
 use std::{
     env, fs,
-    io::Cursor,
+    io::{BufRead, Cursor},
     process::Command,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -77,19 +81,33 @@ pub mod gas {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct TemperaturePayload {
     pub date: Option<DateTimeUtc>,
+    #[serde(alias = "temp", alias = "temperature_level", alias = "value", alias = "val")]
     pub temperature: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct HumidityPayload {
     pub date: Option<DateTimeUtc>,
+    #[serde(alias = "humidite", alias = "humidity_level", alias = "hum", alias = "value", alias = "val")]
     pub humidity: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct GasPayload {
     pub date: Option<DateTimeUtc>,
+    #[serde(alias = "gas", alias = "gaz", alias = "value", alias = "val")]
     pub gas_level: f64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct MqttSensorPayload {
+    pub temperature: Option<f64>,
+    #[serde(alias = "humidity")]
+    pub humidite: Option<f64>,
+    #[serde(alias = "gas", alias = "gas_level")]
+    pub gaz: Option<f64>,
+    #[serde(alias = "presence", alias = "intrusion")]
+    pub mouvement: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -125,6 +143,7 @@ fn parse_date_boundary(s: &str, is_end: bool) -> Option<DateTimeUtc> {
 struct AppState {
     app_name: String,
     conn: Option<DatabaseConnection>,
+    latest_presence: Arc<AtomicBool>,
 }
 
 async fn db_connection() -> Option<DatabaseConnection> {
@@ -192,6 +211,134 @@ fn tls_config() -> rustls::ServerConfig {
     tls_config
 }
 
+fn start_mqtt_subscriber(
+    conn_opt: Option<DatabaseConnection>,
+    presence: Arc<AtomicBool>,
+    handle: tokio::runtime::Handle,
+) {
+    std::thread::spawn(move || {
+        let mqtt_host = get_mqtt_host();
+        loop {
+            println!("[MQTT Listener] Connecting to mosquitto_sub at {mqtt_host} on topic esp8266/#...");
+            let mut child = match Command::new("mosquitto_sub")
+                .arg("-h")
+                .arg(&mqtt_host)
+                .arg("-t")
+                .arg("esp8266/#")
+                .arg("-F")
+                .arg("%t %p")
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(err) => {
+                    eprintln!("[MQTT Listener] Failed to spawn mosquitto_sub: {err}");
+                    std::thread::sleep(Duration::from_secs(3));
+                    continue;
+                }
+            };
+
+            if let Some(stdout) = child.stdout.take() {
+                let reader = std::io::BufReader::new(stdout);
+                for line_res in reader.lines() {
+                    let line = match line_res {
+                        Ok(l) => l,
+                        Err(_) => break,
+                    };
+
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+
+                    // Format avec -F "%t %p": "<topic> <payload>"
+                    let mut parts = line.splitn(2, ' ');
+                    let topic = parts.next().unwrap_or("");
+                    let payload = parts.next().unwrap_or("").trim();
+
+                    if topic == "esp8266/data" {
+                        if let Ok(data) = serde_json::from_str::<MqttSensorPayload>(payload) {
+                            if let Some(mouv) = data.mouvement {
+                                presence.store(mouv, Ordering::Relaxed);
+                            }
+
+                            if let Some(conn) = conn_opt.as_ref().cloned() {
+                                let handle_clone = handle.clone();
+                                handle_clone.spawn(async move {
+                                    let now = chrono::Utc::now();
+                                    if let Some(temp) = data.temperature {
+                                        let entry = temperature::ActiveModel {
+                                            date: sea_orm::Set(now),
+                                            temperature: sea_orm::Set(temp),
+                                        };
+                                        let _ = entry.insert(&conn).await;
+                                    }
+                                    if let Some(hum) = data.humidite {
+                                        let entry = humidity::ActiveModel {
+                                            date: sea_orm::Set(now),
+                                            humidity: sea_orm::Set(hum),
+                                        };
+                                        let _ = entry.insert(&conn).await;
+                                    }
+                                    if let Some(gaz) = data.gaz {
+                                        let entry = gas::ActiveModel {
+                                            date: sea_orm::Set(now),
+                                            gas_level: sea_orm::Set(gaz),
+                                        };
+                                        let _ = entry.insert(&conn).await;
+                                    }
+                                });
+                            }
+                        }
+                    } else if topic == "esp8266/data/temperature" {
+                        if let Ok(temp) = payload.parse::<f64>() {
+                            if let Some(conn) = conn_opt.as_ref().cloned() {
+                                handle.spawn(async move {
+                                    let now = chrono::Utc::now();
+                                    let entry = temperature::ActiveModel {
+                                        date: sea_orm::Set(now),
+                                        temperature: sea_orm::Set(temp),
+                                    };
+                                    let _ = entry.insert(&conn).await;
+                                });
+                            }
+                        }
+                    } else if topic == "esp8266/data/humidite" || topic == "esp8266/data/humidity" {
+                        if let Ok(hum) = payload.parse::<f64>() {
+                            if let Some(conn) = conn_opt.as_ref().cloned() {
+                                handle.spawn(async move {
+                                    let now = chrono::Utc::now();
+                                    let entry = humidity::ActiveModel {
+                                        date: sea_orm::Set(now),
+                                        humidity: sea_orm::Set(hum),
+                                    };
+                                    let _ = entry.insert(&conn).await;
+                                });
+                            }
+                        }
+                    } else if topic == "esp8266/data/gaz" || topic == "esp8266/data/gas" {
+                        if let Ok(gaz) = payload.parse::<f64>() {
+                            if let Some(conn) = conn_opt.as_ref().cloned() {
+                                handle.spawn(async move {
+                                    let now = chrono::Utc::now();
+                                    let entry = gas::ActiveModel {
+                                        date: sea_orm::Set(now),
+                                        gas_level: sea_orm::Set(gaz),
+                                    };
+                                    let _ = entry.insert(&conn).await;
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            let _ = child.wait();
+            std::thread::sleep(Duration::from_secs(2));
+        }
+    });
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -200,11 +347,17 @@ async fn main() -> std::io::Result<()> {
 
     // DB Connection
     let conn = db_connection().await;
+    let latest_presence = Arc::new(AtomicBool::new(false));
+
+    // Démarre l'écouteur MQTT automatique pour enregistrer les données de l'ESP8266 en BDD
+    let tokio_handle = tokio::runtime::Handle::current();
+    start_mqtt_subscriber(conn.clone(), latest_presence.clone(), tokio_handle);
 
     // App State
     let state = web::Data::new(AppState {
         app_name: String::from("Sentinel API"),
         conn,
+        latest_presence,
     });
 
     // TLS / HTTPS
@@ -722,29 +875,9 @@ async fn read_gas_range(
 
 /// Get Presence Sensor Value
 #[get("/presence")]
-async fn sensor_presence(_state: web::Data<AppState>) -> impl Responder {
-    let mqtt_host = get_mqtt_host();
-    let output = Command::new("mosquitto_pub")
-        .arg("-h")
-        .arg(&mqtt_host)
-        .arg("-t")
-        .arg("esp8266/cmd")
-        .arg("-m")
-        .arg("mouv")
-        .output();
-
-    match output {
-        Ok(out) => {
-            if out.status.success() {
-                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                HttpResponse::Ok().body(stdout)
-            } else {
-                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                HttpResponse::InternalServerError().body(stderr)
-            }
-        }
-        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
-    }
+async fn sensor_presence(state: web::Data<AppState>) -> impl Responder {
+    let presence_val = state.latest_presence.load(Ordering::Relaxed);
+    HttpResponse::Ok().body(if presence_val { "1" } else { "0" })
 }
 
 /* #endregion */
@@ -828,6 +961,15 @@ async fn handle_status(state: web::Data<AppState>) -> impl Responder {
             "gas_level": gas.gas_level,
         }));
     }
+
+    // presence / intrusion
+    let presence_val = state.latest_presence.load(Ordering::Relaxed);
+    response.push(json!({
+        "date": chrono::Utc::now().to_rfc3339(),
+        "presence": presence_val,
+        "mouvement": presence_val,
+        "intrusion": presence_val,
+    }));
 
     HttpResponse::Ok().json(response)
 }
