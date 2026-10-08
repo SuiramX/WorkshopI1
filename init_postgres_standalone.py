@@ -35,19 +35,42 @@ CREATE TABLE IF NOT EXISTS sensor_readings (
 );
 
 CREATE TABLE IF NOT EXISTS temperatures (
-    date DATE PRIMARY KEY,
+    date TIMESTAMPTZ PRIMARY KEY DEFAULT now(),
     temperature DOUBLE PRECISION NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS humidities (
-    date DATE PRIMARY KEY,
+    date TIMESTAMPTZ PRIMARY KEY DEFAULT now(),
     humidity DOUBLE PRECISION NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS gases (
-    date DATE PRIMARY KEY,
+    date TIMESTAMPTZ PRIMARY KEY DEFAULT now(),
     gas_level DOUBLE PRECISION NOT NULL
 );
+
+-- Migration automatique si les tables existaient en type DATE
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'temperatures' AND column_name = 'date' AND data_type = 'date'
+    ) THEN
+        ALTER TABLE temperatures ALTER COLUMN date TYPE TIMESTAMPTZ USING date::timestamptz;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'humidities' AND column_name = 'date' AND data_type = 'date'
+    ) THEN
+        ALTER TABLE humidities ALTER COLUMN date TYPE TIMESTAMPTZ USING date::timestamptz;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'gases' AND column_name = 'date' AND data_type = 'date'
+    ) THEN
+        ALTER TABLE gases ALTER COLUMN date TYPE TIMESTAMPTZ USING date::timestamptz;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS ix_sensor_readings_timestamp
 ON sensor_readings(timestamp);
