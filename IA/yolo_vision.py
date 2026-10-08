@@ -8,7 +8,6 @@ import numpy as np
 from ultralytics import YOLO
 
 # ── CONFIGURATION ──
-API_ALERTS_URL = "http://localhost:8000/api/v1/alerts/"
 STREAM_SERVER_URL = os.getenv("STREAM_SERVER_URL", "http://localhost:8001")
 API_FRAME_URL = f"{STREAM_SERVER_URL}/api/v1/video/frame"
 CONFIDENCE_THRESHOLD = 0.50          # Seuil détection YOLOv8
@@ -65,7 +64,7 @@ BLACKLIST_DIR = os.path.join(os.path.dirname(__file__), "blacklist")
 YUNET_PATH = os.path.join(MODELS_DIR, "face_detection_yunet.onnx")
 SFACE_PATH = os.path.join(MODELS_DIR, "face_recognition_sface.onnx")
 
-YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+YUNET_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2026mar.onnx"
 SFACE_URL = "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
 
 
@@ -128,29 +127,18 @@ def load_face_database(directory_path, face_detector, face_recognizer, label_nam
 
 
 # ─────────────────────────────────────────────────────────────
-# 4. FONCTION : RENVOYER LE RÉSULTAT DE L'ANALYSE À L'API
+# 4. FONCTION : API REST
 # ─────────────────────────────────────────────────────────────
-def send_alert_to_api(status_msg: str, box_coords: list, threat_name: str = "INTRUDER", level: str = "critical"):
+def send_alert_rest(status_msg: str, box_coords: list, threat_name: str = "INTRUDER", level: str = "critical"):
     """
-    Transmet l'événement d'anomalie détecté au backend FastAPI.
-    Format conforme aux exigences du sujet (POST /api/v1/alerts).
+    Point d'entrée pour votre propre API Rest personnalisée.
+    Appelé automatiquement en cas d'anomalie détectée (intrus, blacklisté, objet suspect).
     """
-    payload = {
-        "level": level,
-        "source": "ai_vision",
-        "title": f"🚨 {level.upper()}: {threat_name.upper()}",
-        "message": f"{status_msg}. Box coordinates: {box_coords}",
-        "presence": True
-    }
-
-    try:
-        response = requests.post(API_ALERTS_URL, json=payload, timeout=2.0)
-        if response.status_code in (200, 201):
-            print(f"[API] ✅ Alert successfully dispatched (HTTP {response.status_code})")
-        else:
-            print(f"[API]  Unexpected API response : HTTP {response.status_code}")
-    except Exception as err:
-        print(f"[API]  Cannot reach API ({err}). Standalone mode active.")
+    # ── PLACEZ VOTRE PROPRE CODE D'APPEL API REST CI-DESSOUS ──
+    # Exemple :
+    # payload = {"level": level, "threat": threat_name, "message": status_msg, "box": box_coords}
+    # requests.post("VOTRE_URL_API_REST", json=payload)
+    pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -348,7 +336,7 @@ def main():
                         2
                     )
 
-            # 4. RENVOYER LE RÉSULTAT DE L'ANALYSE À L'API EN CAS D'ANOMALIE
+            # 4. DÉCLENCHEMENT DE L'ALERTE EN CAS D'ANOMALIE
             if critical_anomaly or warning_anomaly:
                 now = time.time()
                 if now - last_alert_time > ALERT_COOLDOWN_SEC:
@@ -356,7 +344,7 @@ def main():
                     threat_summary = ", ".join(sorted(set(detected_threat_types))) or "ANOMALIE"
                     alert_level = "critical" if critical_anomaly else "warning"
                     print(f"[IA] 🚨 ÉVÉNEMENT [{alert_level.upper()}] : {threat_summary} !")
-                    send_alert_to_api(f"Détection périmétrique : {threat_summary}", alert_box, threat_summary, level=alert_level)
+                    send_alert_rest(f"Détection périmétrique : {threat_summary}", alert_box, threat_summary, level=alert_level)
 
             # Bandeau de statut général
             if critical_anomaly:
