@@ -1,0 +1,9 @@
+# Dépendances Python pour le sous-système IA Sentinel-X
+opencv-python>=4.9.0.80
+ultralytics>=8.1.0
+torch>=2.2.0
+scikit-learn>=1.4.0
+numpy>=1.26.0
+pandas>=2.2.0
+requests>=2.31.0
+paho-mqtt>=2.0.0
