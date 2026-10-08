@@ -3,7 +3,7 @@ use chrono;
 use dotenvy::dotenv;
 use std::{
     env, fs,
-    io::{BufReader, Cursor},
+    io::{Cursor},
     process::Command,
     time::Duration,
 };
@@ -277,14 +277,8 @@ async fn sensor_temperature(state: web::Data<AppState>) -> impl Responder {
         Ok(out) => {
             if out.status.success() {
                 // Get sensor value
-                let stdout = String::from_utf8_lossy(&out.stdout).to_string(); // json string
-                let parsed: Option<Value> = serde_json::from_str(&stdout).ok();
-
-                let Some(parsed) = parsed else {
-                    return HttpResponse::InternalServerError().body("Failed to parse Sensor JSON");
-                };
-
-                let temp = parsed["temperature"].as_f64();
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let temp = stdout.parse().ok();
 
                 // Store entry to DB if connected
                 if let Some(conn) = &state.conn && let Some(value) = temp {
@@ -422,13 +416,7 @@ async fn sensor_humidity(state: web::Data<AppState>) -> impl Responder {
             if out.status.success() {
                 // Get sensor value
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                let parsed: Option<Value> = serde_json::from_str(&stdout).ok();
-
-                let Some(parsed) = parsed else {
-                    return HttpResponse::InternalServerError().body("Failed to parse Sensor JSON");
-                };
-
-                let hum = parsed["humidite"].as_f64();
+                let hum = stdout.parse().ok();
 
                 // Store entry to DB if connected
                 if let Some(conn) = &state.conn && let Some(value) = hum {
@@ -566,13 +554,7 @@ async fn sensor_gas(state: web::Data<AppState>) -> impl Responder {
             if out.status.success() {
                 // Get sensor value
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-                let parsed: Option<Value> = serde_json::from_str(&stdout).ok();
-
-                let Some(parsed) = parsed else {
-                    return HttpResponse::InternalServerError().body("Failed to parse Sensor JSON");
-                };
-
-                let gas = parsed["gaz"].as_f64();
+                let gas = stdout.parse().ok();
 
                 // Store entry to DB if connected
                 if let Some(conn) = &state.conn && let Some(value) = gas {
