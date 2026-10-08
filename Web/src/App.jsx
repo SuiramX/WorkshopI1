@@ -59,15 +59,6 @@ function parseStatus(payload) {
   return { temperature, humidity, gas, smoke, intrusion, cyber };
 }
 
-// Déclenche une lecture capteur sans bloquer (fire & forget avec timeout)
-function triggerSensor(path) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
-  return fetch(`${API_BASE}${path}`, { signal: ctrl.signal })
-    .catch(() => {}) // erreur ignorée volontairement
-    .finally(() => clearTimeout(timer));
-}
-
 export default function App() {
   const [data, setData] = useState(initialData);
   const [history, setHistory] = useState([]);
@@ -83,25 +74,14 @@ export default function App() {
     return () => clearInterval(clockId);
   }, []);
 
-  // Cycle principal : ping capteurs → attendre → récupérer /status
+  // Récupération des données réelles depuis l'API Rust (toutes les 10 secondes)
   useEffect(() => {
     let isMounted = true;
 
     const fetchSensorData = async () => {
-      // ── Étape 1 : déclencher les 3 capteurs en parallèle pour peupler la BDD
-      // Ces appels publient sur MQTT (esp8266/cmd) et stockent la réponse en base.
-      // On les lance en parallèle et on attend qu'ils se terminent (ou timeout 8s).
-      await Promise.allSettled([
-        triggerSensor("/temperature/sensor"),
-        triggerSensor("/humidity/sensor"),
-        triggerSensor("/gas/sensor"),
-      ]);
-
-      if (!isMounted) return;
-
-      // ── Étape 2 : lire le dernier état depuis la BDD via /status
       try {
         const response = await fetch(`${API_BASE}/status`, {
+          method: "GET",
           headers: { Accept: "application/json" },
         });
 

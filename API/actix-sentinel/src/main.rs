@@ -1,3 +1,4 @@
+use actix_cors::Cors;
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 use chrono;
 use dotenvy::dotenv;
@@ -211,7 +212,10 @@ async fn main() -> std::io::Result<()> {
 
     // Start Server
     HttpServer::new(move || {
+        let cors = Cors::permissive();
+
         App::new()
+            .wrap(cors)
             .app_data(state.clone())
             .service(actix_sentinel)
             .service(get_date)
@@ -234,6 +238,7 @@ async fn main() -> std::io::Result<()> {
             .service(sensor_presence)
             // All
             .service(get_status)
+            .service(post_status)
             .service(get_all_sensors)
     })
     .keep_alive(Duration::from_secs(75))
@@ -773,12 +778,27 @@ async fn get_all_sensors(_state: web::Data<AppState>) -> impl Responder {
     }
 }
 
-/// Get Latest Sensors Values with precise Timestamps
-#[get("/status")]
-async fn get_status(state: web::Data<AppState>) -> impl Responder {
+fn trigger_sensors_poll() {
+    let mqtt_host = get_mqtt_host();
+    for cmd in &["get_all", "temp", "hum", "gaz"] {
+        let _ = Command::new("mosquitto_pub")
+            .arg("-h")
+            .arg(&mqtt_host)
+            .arg("-t")
+            .arg("esp8266/cmd")
+            .arg("-m")
+            .arg(cmd)
+            .output();
+    }
+}
+
+async fn handle_status(state: web::Data<AppState>) -> impl Responder {
     let Some(conn) = &state.conn else {
         return HttpResponse::InternalServerError().body("No DB Connection");
     };
+
+    // Déclenche la récupération des capteurs via MQTT de manière non-bloquante
+    let _ = tokio::task::spawn_blocking(trigger_sensors_poll).await;
 
     let mut response: Vec<Value> = vec![];
 
@@ -810,6 +830,18 @@ async fn get_status(state: web::Data<AppState>) -> impl Responder {
     }
 
     HttpResponse::Ok().json(response)
+}
+
+/// Get Latest Sensors Values with precise Timestamps
+#[get("/status")]
+async fn get_status(state: web::Data<AppState>) -> impl Responder {
+    handle_status(state).await
+}
+
+/// Trigger & Get Latest Sensors Values via POST
+#[post("/status")]
+async fn post_status(state: web::Data<AppState>) -> impl Responder {
+    handle_status(state).await
 }
 
 /* #endregion */
