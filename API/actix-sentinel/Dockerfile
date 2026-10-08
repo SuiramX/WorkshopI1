@@ -23,13 +23,13 @@ RUN cargo build --release --bin actix-sentinel
 
 # 3. Runtime Stage (Must match the builder version)
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Install runtime dependencies (e.g. OpenSSL/ca-certificates if needed)
-RUN apt-get update && apt-get install -y \
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    mosquitto-clients \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/actix-sentinel /app/actix-sentinel

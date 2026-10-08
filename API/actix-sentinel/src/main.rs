@@ -1,12 +1,19 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
+use chrono;
 use dotenvy::dotenv;
-use std::{env, fs, io::{BufReader, Cursor}, process::Command, time::Duration};
+use std::{
+    env, fs,
+    io::{Cursor},
+    process::Command,
+    time::Duration,
+};
 
-use sea_orm::{Database, DatabaseConnection, EntityTrait, QueryOrder, entity::prelude::*};
+// DB Interactions
+use sea_orm::{
+    ConnectOptions, Database, DatabaseConnection, EntityTrait, QueryOrder, entity::prelude::*,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-
-use chrono;
 
 /* #region DB ENTITIES */
 
@@ -93,28 +100,33 @@ struct DateRange {
 
 struct AppState {
     app_name: String,
-    conn: DatabaseConnection,
+    conn: Option<DatabaseConnection>,
 }
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    dotenv().ok();
+async fn db_connection() -> Option<DatabaseConnection> {
+    let db_url = env::var("DATABASE_URL").unwrap_or_else(|_| "DB URL NOT SET".to_string());
 
-    // DB + App State
-    let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
-    let db_url = env::var("DATABASE_URL").expect("DB URL");
+    let mut opt = ConnectOptions::new(db_url);
 
-    let conn: DatabaseConnection = Database::connect(db_url)
-        .await
-        .expect("Failed to connect to database");
+    // Configure connection behavior
+    opt.max_connections(10)
+        .min_connections(1)
+        .connect_timeout(Duration::from_secs(8))
+        .acquire_timeout(Duration::from_secs(8))
+        .idle_timeout(Duration::from_secs(8));
 
-    let state = web::Data::new(AppState {
-        app_name: String::from("Sentinel API"),
-        conn,
-    });
+    // Panic on connection fail
+    // let conn = Database::connect(opt).await.unwrap_or_else(|err| {
+    //     eprintln!("Warning: Initial connection failed: {err}");
+    //     panic!("Could not connect to database");
+    // });
 
-    // TLS / HTTPS
+    let conn = Database::connect(opt).await;
+
+    return conn.ok();
+}
+
+fn tls_config() -> rustls::ServerConfig {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .unwrap();
@@ -132,10 +144,12 @@ async fn main() -> std::io::Result<()> {
         let cert_path = env::var("TLS_CERT_PATH").unwrap_or_else(|_| "cert.pem".to_string());
         let key_path = env::var("TLS_KEY_PATH").unwrap_or_else(|_| "key.pem".to_string());
         (
-            fs::read(&cert_path)
-                .unwrap_or_else(|err| panic!("Failed to read certificate at '{}': {}", cert_path, err)),
-            fs::read(&key_path)
-                .unwrap_or_else(|err| panic!("Failed to read private key at '{}': {}", key_path, err)),
+            fs::read(&cert_path).unwrap_or_else(|err| {
+                panic!("Failed to read certificate at '{}': {}", cert_path, err)
+            }),
+            fs::read(&key_path).unwrap_or_else(|err| {
+                panic!("Failed to read private key at '{}': {}", key_path, err)
+            }),
         )
     };
 
@@ -152,69 +166,134 @@ async fn main() -> std::io::Result<()> {
         .expect("Failed to parse PKCS8 private key");
 
     // set up TLS config options
-    let tls_config = rustls::ServerConfig::builder()
+    let tls_config: rustls::ServerConfig = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(tls_certs, rustls::pki_types::PrivateKeyDer::Pkcs8(tls_key))
         .unwrap();
+
+    return tls_config;
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    dotenv().ok();
+    let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+
+    // DB Connection
+    let conn = db_connection().await;
+
+    // App State
+    let state = web::Data::new(AppState {
+        app_name: String::from("Sentinel API"),
+        conn,
+    });
+
+    // TLS / HTTTPS
+    let tls_config = tls_config();
 
     // Start Server
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
-            .service(hello)
-            .service(get_temperature_test)
-            .service(add_temperature)
-            .service(get_temperatures)
-            .service(get_humidity_test)
-            .service(add_humidity)
-            .service(get_humidities)
-            .service(get_gas_test)
-            .service(add_gas)
-            .service(get_gases)
+            .service(actix_sentinel)
+            .service(get_date)
+            // Temperatures
+            .service(sensor_temperature)
+            .service(create_temperature)
+            .service(read_temperature)
+            .service(read_temperature_range)
+            // Humidity
+            .service(sensor_humidity)
+            .service(create_humidity)
+            .service(read_humidity)
+            .service(read_humidity_range)
+            // Gas
+            .service(sensor_gas)
+            .service(create_gas)
+            .service(read_gas)
+            .service(read_gas_range)
+            // Presence
+            .service(sensor_presence)
+            // All
             .service(get_status)
-            .service(presence)
-            .service(get_temperature_test)
             .service(get_all_sensors)
-            .service(get_mouv)
     })
     .keep_alive(Duration::from_secs(75))
     .bind_rustls_0_23((host.as_str(), port.parse().unwrap()), tls_config)?
+    // .bind((host.as_str(), port.parse().unwrap()))?
     .run()
     .await
 }
 
-/* #region ROUTES */
+/* #region MAIN ROUTES */
 
 #[get("/")]
-async fn hello(data: web::Data<AppState>) -> impl Responder {
-    let app_name = &data.app_name;
+async fn actix_sentinel(state: web::Data<AppState>) -> impl Responder {
+    let app_name = &state.app_name;
     HttpResponse::Ok().body(format!("{}", app_name))
 }
 
-// Temperature
+#[get("/date")]
+async fn get_date(_state: web::Data<AppState>) -> impl Responder {
+    let current_date = chrono::Utc::now().naive_utc().date();
+    HttpResponse::Ok().body(format!("current date : {}", current_date.to_string()))
+}
 
-/// Get temp from Sensors + store in DB
-#[get("/temperature_sensor")]
-async fn get_temperature_test(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "temp"
+/* #endregion */
+
+/* #region TEMPERATURE */
+
+async fn get_latest_temp(conn: &DatabaseConnection) -> Option<temperature::Model> {
+    let latest_temp = temperature::Entity::find()
+        .order_by_desc(temperature::Column::Date)
+        .one(conn)
+        .await;
+
+    let temperature: Option<temperature::Model> = match latest_temp {
+        Ok(Some(entry)) => Some(entry),
+        Ok(None) => None,
+        Err(_err) => None,
+    };
+
+    return temperature;
+}
+
+fn get_mqtt_host() -> String {
+    env::var("MQTT_HOST").unwrap_or_else(|_| "192.168.1.9".to_string())
+}
+
+/// Get Temperature from Sensor
+/// Store to DB
+#[get("/temperature/sensor")]
+async fn sensor_temperature(state: web::Data<AppState>) -> impl Responder {
+    let mqtt_host = get_mqtt_host();
     let output = Command::new("mosquitto_pub")
         .arg("-h")
-        .arg("192.168.1.9")
+        .arg(&mqtt_host)
         .arg("-t")
-        .arg("'esp8266/cmd'")
+        .arg("esp8266/cmd")
         .arg("-m")
-        .arg("'temp'")
+        .arg("temp")
         .output();
 
     return match output {
         Ok(out) => {
             if out.status.success() {
+                // Get sensor value
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let temp = stdout.parse().ok();
 
-                let new_entry = temperature::ActiveModel {
-                    date: sea_orm::Set(chrono::naive::NaiveDate::from_ymd_opt(2026, 10, 07).unwrap()),
-                    temperature: sea_orm::Set(stdout.parse().unwrap()),
-                };
+                // Store entry to DB if connected
+                if let Some(conn) = &state.conn && let Some(value) = temp {
+                    let current_date = chrono::Utc::now().naive_utc().date();
+                    let new_entry = temperature::ActiveModel {
+                        date: sea_orm::Set(current_date),
+                        temperature: sea_orm::Set(value),
+                    };
+
+                    let db_result = new_entry.insert(conn).await;
+                }
 
                 HttpResponse::Ok().body(stdout)
             } else {
@@ -226,36 +305,67 @@ async fn get_temperature_test(state: web::Data<AppState>) -> impl Responder {
     };
 }
 
-/// Add temperature to DB -> from JSON in http Request
+/// Take a temperature JSON
+/// Store to DB
 #[post("/temperature")]
-async fn add_temperature(
+async fn create_temperature(
     state: web::Data<AppState>,
     payload: web::Json<Temperature>,
 ) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
     let new_entry = temperature::ActiveModel {
         date: sea_orm::Set(payload.date),
         temperature: sea_orm::Set(payload.temperature),
     };
 
-    match new_entry.insert(&state.conn).await {
+    match new_entry.insert(conn).await {
         Ok(inserted) => HttpResponse::Created().json(inserted),
         Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
     }
 }
 
+/// Get Latest Temperature
+#[get("/temperature")]
+async fn read_temperature(state: web::Data<AppState>) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
+    // Query between date range
+    let temperature = get_latest_temp(conn).await;
+
+    if let Some(temperature) = temperature {
+        let temp = json!({
+            "date": temperature.date.to_string(),
+            "temperature": &temperature.temperature,
+        });
+
+        return HttpResponse::Ok().json(temp);
+    }
+
+    return HttpResponse::NotFound().body("No DB entry");
+}
+
 /// Get all Temperatures in the Date Range
-#[get("/temperatures")]
-async fn get_temperatures(
+#[get("/temperature/range")]
+async fn read_temperature_range(
     state: web::Data<AppState>,
     date_range: web::Query<DateRange>,
 ) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
     let start_date = date_range.start_date;
     let end_date = date_range.end_date;
 
     // Query between date range
     let temperatures = temperature::Entity::find()
         .filter(temperature::Column::Date.between(start_date, end_date))
-        .all(&state.conn)
+        .all(conn)
         .await
         .expect("Failed to fetch temperature data");
 
@@ -272,30 +382,56 @@ async fn get_temperatures(
     HttpResponse::Ok().json(response)
 }
 
-// Humidity
+/* #endregion */
 
-/// Get hum from Sensors + store in DB
-#[get("/humidity_sensor")]
-async fn get_humidity_test(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
+/* #region HUMIDITY */
+
+async fn get_latest_humidity(conn: &DatabaseConnection) -> Option<humidity::Model> {
+    let latest_temp = humidity::Entity::find()
+        .order_by_desc(humidity::Column::Date)
+        .one(conn)
+        .await;
+
+    let humidity: Option<humidity::Model> = match latest_temp {
+        Ok(Some(entry)) => Some(entry),
+        Ok(None) => None,
+        Err(_err) => None,
+    };
+
+    return humidity;
+}
+
+/// Get Humidity from Sensor
+/// Store in DB
+#[get("/humidity/sensor")]
+async fn sensor_humidity(state: web::Data<AppState>) -> impl Responder {
+    let mqtt_host = get_mqtt_host();
     let output = Command::new("mosquitto_pub")
         .arg("-h")
-        .arg("192.168.1.9")
+        .arg(&mqtt_host)
         .arg("-t")
-        .arg("'esp8266/cmd'")
+        .arg("esp8266/cmd")
         .arg("-m")
-        .arg("'hum'")
+        .arg("hum")
         .output();
 
     return match output {
         Ok(out) => {
             if out.status.success() {
+                // Get sensor value
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let hum = stdout.parse().ok();
 
-                let new_entry = humidity::ActiveModel {
-                    date: sea_orm::Set(chrono::naive::NaiveDate::from_ymd_opt(2026, 10, 07).unwrap()),
-                    humidity: sea_orm::Set(stdout.parse().unwrap()),
-                };
+                // Store entry to DB if connected
+                if let Some(conn) = &state.conn && let Some(value) = hum {
+                    let current_date = chrono::Utc::now().naive_utc().date();
+                    let new_entry = humidity::ActiveModel {
+                        date: sea_orm::Set(current_date),
+                        humidity: sea_orm::Set(value),
+                    };
+
+                    let db_result = new_entry.insert(conn).await;
+                }
 
                 HttpResponse::Ok().body(stdout)
             } else {
@@ -307,32 +443,67 @@ async fn get_humidity_test(state: web::Data<AppState>) -> impl Responder {
     };
 }
 
+/// Take a humidity JSON
+/// Store to DB
 #[post("/humidity")]
-async fn add_humidity(state: web::Data<AppState>, payload: web::Json<Humidity>) -> impl Responder {
+async fn create_humidity(
+    state: web::Data<AppState>,
+    payload: web::Json<Humidity>,
+) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
     let new_entry = humidity::ActiveModel {
         date: sea_orm::Set(payload.date),
         humidity: sea_orm::Set(payload.humidity),
     };
 
-    match new_entry.insert(&state.conn).await {
+    match new_entry.insert(conn).await {
         Ok(inserted) => HttpResponse::Created().json(inserted),
         Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
     }
 }
 
-/// Get all Humidities in the Date Range
+/// Get Latest Temperature
 #[get("/humidity")]
-async fn get_humidities(
+async fn read_humidity(state: web::Data<AppState>) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
+    // Query between date range
+    let humidity = get_latest_humidity(conn).await;
+
+    if let Some(humidity) = humidity {
+        let temp = json!({
+            "date": humidity.date.to_string(),
+            "humidity": &humidity.humidity,
+        });
+
+        return HttpResponse::Ok().json(temp);
+    }
+
+    return HttpResponse::NotFound().body("No DB entry");
+}
+
+/// Get all Humidities in the Date Range
+#[get("/humidity/range")]
+async fn read_humidity_range(
     state: web::Data<AppState>,
     date_range: web::Query<DateRange>,
 ) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
     let start_date = date_range.start_date;
     let end_date = date_range.end_date;
 
     // Query between date range
     let humidities = humidity::Entity::find()
         .filter(humidity::Column::Date.between(start_date, end_date))
-        .all(&state.conn)
+        .all(conn)
         .await
         .expect("Failed to fetch humidity data");
 
@@ -349,30 +520,54 @@ async fn get_humidities(
     HttpResponse::Ok().json(response)
 }
 
-// Gas
+/* #endregion */
 
-/// Get gas from Sensors + store in DB
-#[get("/gas_sensor")]
-async fn get_gas_test(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "hum"
+/* #region GAS */
+
+async fn get_latest_gas_level(conn: &DatabaseConnection) -> Option<gas::Model> {
+    let latest_temp = gas::Entity::find()
+        .order_by_desc(gas::Column::Date)
+        .one(conn)
+        .await;
+
+    let gas: Option<gas::Model> = match latest_temp {
+        Ok(Some(entry)) => Some(entry),
+        Ok(None) => None,
+        Err(_err) => None,
+    };
+
+    return gas;
+}
+
+/// Get Gaz from Sensor
+/// Store in DB
+#[get("/gas/sensor")]
+async fn sensor_gas(state: web::Data<AppState>) -> impl Responder {
+    let mqtt_host = get_mqtt_host();
     let output = Command::new("mosquitto_pub")
         .arg("-h")
-        .arg("192.168.1.9")
+        .arg(&mqtt_host)
         .arg("-t")
-        .arg("'esp8266/cmd'")
+        .arg("esp8266/cmd")
         .arg("-m")
-        .arg("'gaz'")
+        .arg("gaz")
         .output();
 
     return match output {
         Ok(out) => {
             if out.status.success() {
+                // Get sensor value
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                let gas = stdout.parse().ok();
 
-                let new_entry = gas::ActiveModel {
-                    date: sea_orm::Set(chrono::naive::NaiveDate::from_ymd_opt(2026, 10, 07).unwrap()),
-                    gas_level: sea_orm::Set(stdout.parse().unwrap()),
-                };
+                // Store entry to DB if connected
+                if let Some(conn) = &state.conn && let Some(value) = gas {
+                    let current_date = chrono::Utc::now().naive_utc().date();
+                    let new_entry = gas::ActiveModel {
+                        date: sea_orm::Set(current_date),
+                        gas_level: sea_orm::Set(value),
+                    };
+                }
 
                 HttpResponse::Ok().body(stdout)
             } else {
@@ -384,32 +579,64 @@ async fn get_gas_test(state: web::Data<AppState>) -> impl Responder {
     };
 }
 
+/// Take a gas JSON
+/// Store entry to DB
 #[post("/gas")]
-async fn add_gas(state: web::Data<AppState>, payload: web::Json<Gas>) -> impl Responder {
+async fn create_gas(state: web::Data<AppState>, payload: web::Json<Gas>) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
     let new_entry = gas::ActiveModel {
         date: sea_orm::Set(payload.date),
         gas_level: sea_orm::Set(payload.gas_level),
     };
 
-    match new_entry.insert(&state.conn).await {
+    match new_entry.insert(conn).await {
         Ok(inserted) => HttpResponse::Created().json(inserted),
         Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
     }
 }
 
-/// Get all Gases in the Date Range
+/// Get Latest Gas Level
 #[get("/gas")]
-async fn get_gases(
+async fn read_gas(state: web::Data<AppState>) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
+    // Query between date range
+    let gas = get_latest_gas_level(conn).await;
+
+    if let Some(gas) = gas {
+        let temp = json!({
+            "date": gas.date.to_string(),
+            "gas": &&gas.gas_level,
+        });
+
+        return HttpResponse::Ok().json(temp);
+    }
+
+    return HttpResponse::NotFound().body("No DB entry");
+}
+
+/// Get all Gases in the Date Range
+#[get("/gas/range")]
+async fn read_gas_range(
     state: web::Data<AppState>,
     date_range: web::Query<DateRange>,
 ) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
     let start_date = date_range.start_date;
     let end_date = date_range.end_date;
 
     // Query between date range
     let gases = gas::Entity::find()
         .filter(gas::Column::Date.between(start_date, end_date))
-        .all(&state.conn)
+        .all(conn)
         .await
         .expect("Failed to fetch gas data");
 
@@ -426,23 +653,61 @@ async fn get_gases(
     HttpResponse::Ok().json(response)
 }
 
-/// Get all sensor
-#[get("/all_sensors")]
-async fn get_all_sensors(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
+/* #endregion */
+
+/* #region PRESENCE */
+
+/// Get Presence Sensor Value
+#[get("/presence")]
+async fn sensor_presence(_state: web::Data<AppState>) -> impl Responder {
+    let mqtt_host = get_mqtt_host();
     let output = Command::new("mosquitto_pub")
         .arg("-h")
-        .arg("192.168.1.9")
+        .arg(&mqtt_host)
         .arg("-t")
-        .arg("'esp8266/cmd'")
+        .arg("esp8266/cmd")
         .arg("-m")
-        .arg("'get_all'")
+        .arg("mouv")
         .output();
 
     return match output {
         Ok(out) => {
             if out.status.success() {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+                HttpResponse::Ok().body(stdout)
+            } else {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                HttpResponse::InternalServerError().body(stderr)
+            }
+        }
+        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
+    };
+}
+
+/* #endregion */
+
+/* #region ALL SENSORS */
+
+/// Get all sensors value
+#[get("/status/sensors")]
+async fn get_all_sensors(_state: web::Data<AppState>) -> impl Responder {
+    let mqtt_host = get_mqtt_host();
+    let output = Command::new("mosquitto_pub")
+        .arg("-h")
+        .arg(&mqtt_host)
+        .arg("-t")
+        .arg("esp8266/cmd")
+        .arg("-m")
+        .arg("get_all")
+        .output();
+
+    return match output {
+        Ok(out) => {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+                // TODO : Add to DB
 
                 HttpResponse::Ok().body(stdout)
             } else {
@@ -457,19 +722,14 @@ async fn get_all_sensors(state: web::Data<AppState>) -> impl Responder {
 /// Get Latest Sensors Values
 #[get("/status")]
 async fn get_status(state: web::Data<AppState>) -> impl Responder {
+    let Some(conn) = &state.conn else {
+        return HttpResponse::InternalServerError().body(format!("No DB Connection"));
+    };
+
     let mut response: Vec<Value> = vec![];
 
     // temp
-    let latest_temp = temperature::Entity::find()
-        .order_by_desc(temperature::Column::Date)
-        .one(&state.conn)
-        .await;
-
-    let temperature: Option<temperature::Model> = match latest_temp {
-        Ok(Some(entry)) => Some(entry),
-        Ok(None) => None,
-        Err(err) => None,
-    };
+    let temperature = get_latest_temp(conn).await;
 
     if let Some(temperature) = temperature {
         response.push(json!({
@@ -479,16 +739,7 @@ async fn get_status(state: web::Data<AppState>) -> impl Responder {
     }
 
     // humidity
-    let latest_humidity = humidity::Entity::find()
-        .order_by_desc(humidity::Column::Date)
-        .one(&state.conn)
-        .await;
-
-    let humidity: Option<humidity::Model> = match latest_humidity {
-        Ok(Some(entry)) => Some(entry),
-        Ok(None) => None,
-        Err(err) => None,
-    };
+    let humidity = get_latest_humidity(conn).await;
 
     if let Some(humidity) = humidity {
         response.push(json!({
@@ -498,16 +749,7 @@ async fn get_status(state: web::Data<AppState>) -> impl Responder {
     }
 
     // gas
-    let latest_gas = gas::Entity::find()
-        .order_by_desc(gas::Column::Date)
-        .one(&state.conn)
-        .await;
-
-    let gas: Option<gas::Model> = match latest_gas {
-        Ok(Some(entry)) => Some(entry),
-        Ok(None) => None,
-        Err(err) => None,
-    };
+    let gas = get_latest_gas_level(conn).await;
 
     if let Some(gas) = gas {
         response.push(json!({
@@ -517,42 +759,6 @@ async fn get_status(state: web::Data<AppState>) -> impl Responder {
     }
 
     return HttpResponse::Ok().json(response);
-}
-
-#[get("/presence")]
-async fn presence(state: web::Data<AppState>) -> impl Responder {
-    println!("Presence Detected");
-    // TODO
-
-    HttpResponse::Ok().body(format!("Presence Detected"))
-}
-
-/// Get Mouvement
-#[get("/mouv")]
-async fn get_mouv(state: web::Data<AppState>) -> impl Responder {
-    // mosquitto_pub -h 192.168.1.9 -t "esp8266/cmd" -m "get_all"
-    let output = Command::new("mosquitto_pub")
-        .arg("-h")
-        .arg("192.168.1.9")
-        .arg("-t")
-        .arg("'esp8266/cmd'")
-        .arg("-m")
-        .arg("'mouv'")
-        .output();
-
-    return match output {
-        Ok(out) => {
-            if out.status.success() {
-                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-
-                HttpResponse::Ok().body(stdout)
-            } else {
-                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                HttpResponse::InternalServerError().body(stderr)
-            }
-        }
-        Err(err) => HttpResponse::InternalServerError().body(err.to_string()),
-    };
 }
 
 /* #endregion */
